@@ -3,6 +3,24 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react-swc": "^3.5.0",
+    "vite": "^5.0.0"
+  }
+}
+{
+  "name": "illegal-case-management-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
     "dev": "live-server --port=5173 --open=Case_Management_Dashboard_v2.html"
   },
   "devDependencies": {
