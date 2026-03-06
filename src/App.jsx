@@ -118,25 +118,25 @@ function App() {
           <span className="filter-label">FILTERS</span>
         </span>
         <select className="filter-select filter-select-primary" id="filter-source" onChange={handleFiltersChange}>
-          <option value="">All Sources</option>
+          <option value="">All case sources</option>
         </select>
         <select className="filter-select" id="filter-verification" onChange={handleFiltersChange}>
-          <option value="">All Status</option>
+          <option value="">All verification statuses</option>
           <option value="verified">Verified</option>
           <option value="not_verified">Not Verified</option>
           <option value="under_review">Under Review</option>
         </select>
         <select className="filter-select" id="filter-action" onChange={handleFiltersChange}>
-          <option value="">All Actions</option>
+          <option value="">All committee actions</option>
         </select>
         <select className="filter-select" id="filter-sector" onChange={handleFiltersChange}>
-          <option value="">All Sectors</option>
+          <option value="">All sectors</option>
         </select>
         <select className="filter-select" id="filter-cell" onChange={handleFiltersChange}>
-          <option value="">All Cells</option>
+          <option value="">All cells</option>
         </select>
         <select className="filter-select" id="filter-visitstatus" onChange={handleFiltersChange}>
-          <option value="">All Verification</option>
+          <option value="">All visit statuses</option>
         </select>
         <input type="date" id="filter-from" className="filter-date" onChange={handleFiltersChange} />
         <span className="filter-to-sep">to</span>
@@ -160,7 +160,7 @@ function App() {
             <span className="kpi-label">Total Cases</span>
           </div>
           <div className="kpi-val" id="kpi-total-cases">--</div>
-          <div className="kpi-sub">All recorded inspections</div>
+          <div className="kpi-sub">Cases recorded</div>
           <div className="kpi-bar" style={{ background: '#0F7173' }}></div>
         </div>
         <div className="kpi kpi-verified">
@@ -176,7 +176,7 @@ function App() {
             <span className="kpi-label">Verified</span>
           </div>
           <div className="kpi-val" id="kpi-verified">--</div>
-          <div className="kpi-sub">Confirmed by committee</div>
+          <div className="kpi-sub">Cases verified by committee</div>
           <div className="kpi-bar" style={{ background: '#15803d' }}></div>
         </div>
         <div className="kpi kpi-unverified">
@@ -193,7 +193,7 @@ function App() {
             <span className="kpi-label">Not Verified</span>
           </div>
           <div className="kpi-val" id="kpi-unverified">--</div>
-          <div className="kpi-sub">Awaiting verification</div>
+          <div className="kpi-sub">Cases awaiting verification</div>
           <div className="kpi-bar" style={{ background: '#b91c1c' }}></div>
         </div>
         <div className="kpi kpi-underreview">
@@ -209,7 +209,7 @@ function App() {
             <span className="kpi-label">Under Review</span>
           </div>
           <div className="kpi-val" id="kpi-under-review">--</div>
-          <div className="kpi-sub">Pending committee decision</div>
+          <div className="kpi-sub">Cases pending committee decision</div>
           <div className="kpi-bar"></div>
         </div>
       </div>
@@ -239,7 +239,7 @@ function App() {
             <span className="kpi-label">Demolished</span>
           </div>
           <div className="kpi-val" id="kpi-demolished">--</div>
-          <div className="kpi-sub">Structures removed</div>
+          <div className="kpi-sub">Cases required to be demolished</div>
         </div>
         <div className="kpi">
           <div className="kpi-top">
@@ -255,7 +255,7 @@ function App() {
             <span className="kpi-label">New permit</span>
           </div>
           <div className="kpi-val" id="kpi-newpermit">--</div>
-          <div className="kpi-sub">New permits issued</div>
+          <div className="kpi-sub">Cases requiring new permit</div>
         </div>
         <div className="kpi">
           <div className="kpi-top">
@@ -270,7 +270,7 @@ function App() {
             <span className="kpi-label">Renew permit</span>
           </div>
           <div className="kpi-val" id="kpi-renewed">--</div>
-          <div className="kpi-sub">Existing permits renewed</div>
+          <div className="kpi-sub">Cases requiring permit renewal</div>
         </div>
       </div>
 
@@ -326,11 +326,17 @@ function App() {
                 <select
                   id="table-sort-by"
                   className="filter-select"
-                  style={{ minWidth: 140 }}
+                  style={{ minWidth: 180 }}
                   onChange={() => window.APP && window.APP.applyFilters()}
                 >
-                  <option value="date">Date (oldest first)</option>
+                  <option value="date_asc">Date (oldest first)</option>
+                  <option value="date_desc">Date (newest first)</option>
                   <option value="state">Verification status</option>
+                  <option value="id_asc">Case ID (A–Z)</option>
+                  <option value="id_desc">Case ID (Z–A)</option>
+                  <option value="sector">Sector (A–Z)</option>
+                  <option value="upi">UPI (A–Z)</option>
+                  <option value="visitstatus">Visit status</option>
                 </select>
                 <span className="panel-badge" id="table-count">
                   0
@@ -637,11 +643,29 @@ function App() {
                   </div>
                 </div>
               </div>
-              <div id="fine-wrap" style={{ display: 'none' }} className="ag">
+              <div id="fine-amount-wrap" className="ag" style={{ display: 'none' }}>
                 <label>
                   Fine Amount <span className="rwf-badge">RWF</span>
+                  <span
+                    style={{
+                      marginLeft: 6,
+                      fontSize: 10,
+                      textTransform: 'uppercase',
+                      color: 'var(--text-muted)',
+                      letterSpacing: 0.6
+                    }}
+                  >
+                    Auto
+                  </span>
                 </label>
-                <input type="number" id="fine-amount" placeholder="Enter amount in RWF" min="0" />
+                <input
+                  type="text"
+                  id="fine-amount"
+                  readOnly
+                  disabled
+                  placeholder="Auto-filled from backend"
+                  style={{ backgroundColor: 'var(--bg-surface-alt)', cursor: 'not-allowed' }}
+                />
               </div>
             </div>
 
@@ -663,7 +687,7 @@ function App() {
             <button className="btn btn-ghost" onClick={() => handleCloseModal('cmt-modal')}>
               Cancel
             </button>
-            <button className="btn btn-primary" onClick={handleSaveDecision}>
+            <button id="save-committee-btn" type="button" className="btn btn-primary" onClick={handleSaveDecision}>
               <span className="icon icon-sm">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <polyline points="20 6 9 17 4 12" />

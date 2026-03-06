@@ -1,4 +1,4 @@
-const CFG = { PORTAL: 'https://gh.space.gov.rw/portal/', WEBMAP: '71f7636be6f14ed287abd35e857569ca', LAYER: 'https://gh.space.gov.rw/server/rest/services/case_inspection/FeatureServer/3', API_BASE_URL: 'http://localhost:8000' };
+const CFG = { PORTAL: 'https://gh.space.gov.rw/portal/', WEBMAP: '71f7636be6f14ed287abd35e857569ca', LAYER: 'https://gh.space.gov.rw/server/rest/services/case_inspection/FeatureServer/3', API_BASE_URL: 'http://192.168.1.116:8000' };
 const F = { caseid:'caseid', upi:'upi', source:'source_data', visitStatus:'visit_status', inspector:'inspector1', inspectingDate:'inspecting_date', description:'case_description', actionTaken:'action_taken', globalid:'globalid', verificationStatus:'committeeverification_status', sector:'sector', cell:'cell', village:'village', committeeAction:'committee_action', field_suggested_actions:'field_suggested_actions', fine_amount:'fine_amount' };
 const S = { cases:[], filtered:[], selectedId:null, srcMap:{}, statMap:{}, gl:null, view:null, dec:null };
 let pieInst=null, lineInst=null, sectorInst=null, timeMode='week';
@@ -87,12 +87,78 @@ function(WebMap,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,esriConfig,Sear
         const srcSel=document.getElementById('filter-source');
         Object.entries(S.srcMap).forEach(([code,label])=>{ const o=document.createElement('option'); o.value=String(code); o.textContent=label; srcSel.appendChild(o); });
         const q=new Query(); q.where='1=1'; q.outFields=['*']; q.returnGeometry=true; q.num=2000;
-        return fl.queryFeatures(q);
-    }).then(results=>{
-        S.cases=results.features.map(f=>{
-            const a=f.attributes;
-            return { id:a[F.caseid]||a['OBJECTID']||'', backendObjectId:a['OBJECTID'], upi:a[F.upi]||'', source:a[F.source], srcLabel:S.srcMap[a[F.source]]||String(a[F.source]||''), rawVS:a[F.visitStatus], vsLabel:S.statMap[a[F.visitStatus]]||String(a[F.visitStatus]||''), inspector:a[F.inspector]||'', inspDate:a[F.inspectingDate], description:a[F.description]||'', actionTaken:a[F.actionTaken]||'', globalid:a[F.globalid]||'', rawVer:a[F.verificationStatus], verNorm:normVer(a[F.verificationStatus]), sector:a[F.sector]||'', cell:a[F.cell]||'', village:a[F.village]||'', fieldSuggestedActions:a[F.field_suggested_actions]||'', acts:normActs(a[F.committeeAction]), fineAmt:a[F.fine_amount]!=null?a[F.fine_amount]:null, geo:f.geometry };
+        const baseUrl=(CFG.API_BASE_URL||'').replace(/\/+$/,'');
+        const casesPromise=baseUrl?fetch(baseUrl+'/cases').then(r=>r.ok?r.json():[]).catch(()=>[]):Promise.resolve([]);
+        const layerPromise=fl.queryFeatures(q);
+        return Promise.all([casesPromise,layerPromise]);
+    }).then(async ([apiCases,arcResults])=>{
+        if(!Array.isArray(apiCases)) apiCases=[];
+        const arcFeatures=arcResults&&arcResults.features?arcResults.features:[];
+        const geoByOid=new Map();
+        const geoByGlobalId=new Map();
+        arcFeatures.forEach(f=>{
+            const a=f.attributes||{};
+            const oid=a['OBJECTID']!=null?a['OBJECTID']:a['objectid'];
+            const gid=a[F.globalid]||a['globalid'];
+            if(oid!=null&&Number.isFinite(Number(oid))) geoByOid.set(Number(oid),f.geometry);
+            if(gid) geoByGlobalId.set(String(gid).replace(/[{}]/g,'').toLowerCase(),f.geometry);
         });
+
+        if(!Array.isArray(apiCases)||apiCases.length===0){
+            apiCases=arcFeatures.map(f=>{
+                const a=f.attributes||{};
+                const oid=a['OBJECTID']!=null?a['OBJECTID']:a['objectid'];
+                return {
+                    objectid:oid!=null?Number(oid):null,
+                    globalid:a[F.globalid]||a['globalid']||'',
+                    caseid:a[F.caseid]||String(oid||''),
+                    upi:a[F.upi]||'',
+                    visit_status:S.statMap[a[F.visitStatus]]||String(a[F.visitStatus]||''),
+                    committeeverification_status:a[F.verificationStatus],
+                    field_suggested_actions:a[F.field_suggested_actions]||'',
+                    committee_action:a[F.committeeAction],
+                    fine_amount:a[F.fine_amount]!=null?a[F.fine_amount]:null,
+                    sector:a[F.sector]||'',
+                    cell:a[F.cell]||'',
+                    village:a[F.village]||'',
+                    inspection_from_data:a[F.inspectingDate]
+                };
+            });
+        }
+
+        const codeForLabel={};
+        Object.entries(S.statMap).forEach(([code,label])=>{ codeForLabel[String(label).toLowerCase()]=code; codeForLabel[String(label)]=code; });
+
+        S.cases=apiCases.map(row=>{
+            const oid=row.objectid!=null?Number(row.objectid):null;
+            const id=row.caseid||String(oid||'');
+            const rawVS=codeForLabel[String(row.visit_status||'').toLowerCase()]||codeForLabel[row.visit_status]||row.visit_status;
+            const geo=oid!=null&&geoByOid.has(oid)?geoByOid.get(oid):(row.globalid?geoByGlobalId.get(String(row.globalid).replace(/[{}]/g,'').toLowerCase()):null)||null;
+            return {
+                id,
+                backendObjectId:oid,
+                upi:row.upi||'',
+                source:row.source_data!=null?row.source_data:null,
+                srcLabel:row.source_data!=null?(S.srcMap[row.source_data]||String(row.source_data)):'',
+                rawVS,
+                vsLabel:row.visit_status||'',
+                inspector:row.inspector||'',
+                inspDate:row.inspection_from_data||row.inspecting_date||null,
+                description:row.description||row.case_description||'',
+                actionTaken:row.actionTaken||row.action_taken||'',
+                globalid:row.globalid||'',
+                rawVer:row.committeeverification_status,
+                verNorm:normVer(row.committeeverification_status),
+                sector:row.sector||'',
+                cell:row.cell||'',
+                village:row.village||'',
+                fieldSuggestedActions:row.field_suggested_actions||'',
+                acts:normActs(row.committee_action),
+                fineAmt:row.fine_amount!=null&&!isNaN(Number(row.fine_amount))?Number(row.fine_amount):null,
+                geo
+            };
+        });
+
         const sectors=[...new Set(S.cases.map(c=>c.sector).filter(Boolean))].sort();
         const sectSel=document.getElementById('filter-sector');
         sectors.forEach(s=>{ const o=document.createElement('option'); o.value=s; o.textContent=s; sectSel.appendChild(o); });
@@ -238,17 +304,34 @@ function(WebMap,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,esriConfig,Sear
                 tbody.innerHTML='<tr><td colspan="5" style="padding:16px;text-align:center;font-size:12px;color:var(--text-muted)">No cases match current filters</td></tr>';
                 return;
             }
-            const sortBy=(document.getElementById('table-sort-by')||{}).value||'date';
+            const sortBy=(document.getElementById('table-sort-by')||{}).value||'date_asc';
             const verOrder={verified:0,under_review:1,not_verified:2};
             const sorted=[...S.filtered].sort((a,b)=>{
-                if(sortBy==='state'){
-                    const va=verOrder[a.verNorm]!=null?verOrder[a.verNorm]:3;
-                    const vb=verOrder[b.verNorm]!=null?verOrder[b.verNorm]:3;
-                    if(va!==vb) return va-vb;
-                }
                 const da=a.inspDate?new Date(a.inspDate).getTime():Infinity;
                 const db=b.inspDate?new Date(b.inspDate).getTime():Infinity;
-                return da-db;
+                const idA=String(a.id||'').toLowerCase();
+                const idB=String(b.id||'').toLowerCase();
+                const secA=String(a.sector||'').toLowerCase();
+                const secB=String(b.sector||'').toLowerCase();
+                const upiA=String(a.upi||'').toLowerCase();
+                const upiB=String(b.upi||'').toLowerCase();
+                const vsA=String(a.vsLabel||'').toLowerCase();
+                const vsB=String(b.vsLabel||'').toLowerCase();
+                let cmp=0;
+                if(sortBy==='date_asc'||sortBy==='date'){ cmp=da-db; }
+                else if(sortBy==='date_desc'){ cmp=db-da; }
+                else if(sortBy==='state'){
+                    const va=verOrder[a.verNorm]!=null?verOrder[a.verNorm]:3;
+                    const vb=verOrder[b.verNorm]!=null?verOrder[b.verNorm]:3;
+                    cmp=va!==vb?va-vb:da-db;
+                }
+                else if(sortBy==='id_asc'){ cmp=idA.localeCompare(idB)||da-db; }
+                else if(sortBy==='id_desc'){ cmp=idB.localeCompare(idA)||da-db; }
+                else if(sortBy==='sector'){ cmp=secA.localeCompare(secB)||da-db; }
+                else if(sortBy==='upi'){ cmp=upiA.localeCompare(upiB)||da-db; }
+                else if(sortBy==='visitstatus'){ cmp=vsA.localeCompare(vsB)||da-db; }
+                else { cmp=da-db; }
+                return cmp;
             });
             const rows=sorted.slice(0,10);
             tbody.innerHTML=rows.map(c=>{
@@ -330,14 +413,18 @@ function(WebMap,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,esriConfig,Sear
         openCmt(id) {
             const c=S.cases.find(x=>x.id===id); if(!c) return;
             S.selectedId=id; S.dec=null;
-            document.getElementById('cmt-case-info').innerHTML=`<div class="cmono">${esc(c.id||'—')} · ${esc(c.upi||'—')}</div><div class="csub">${esc(c.sector||'')}${c.cell?' · '+esc(c.cell):''}${c.village?' · '+esc(c.village):''}</div>`;
+            const suggested=c.fieldSuggestedActions||'';
+            document.getElementById('cmt-case-info').innerHTML=
+                `<div class="detail-label" style="margin-bottom:4px">Suggested actions from inspection</div>`+
+                `<div class="detail-desc">${esc(suggested||'No suggested actions recorded.')}</div>`;
             ['c','nc','rv'].forEach(d=>{ document.getElementById('dlbl-'+d).className='dec-label'; document.getElementById('dradio-'+d).className='dec-radio'; });
             document.getElementById('action-panel').style.display='none';
             document.getElementById('ver-group').style.display='block';
             document.getElementById('auto-note').style.display='none';
             ['fine','demo','new','renew'].forEach(a=>{ const el=document.getElementById('chk-'+a); if(el){el.checked=false;} document.getElementById('ach-'+a).classList.remove('on'); });
-            document.getElementById('fine-wrap').style.display='none';
-            document.getElementById('fine-amount').value='';
+            const fineWrap=document.getElementById('fine-amount-wrap');
+            const fineInput=document.getElementById('fine-amount');
+            if(fineWrap&&fineInput){ fineWrap.style.display='none'; fineInput.value=''; }
             document.getElementById('cmt-notes').value='';
             document.getElementById('cmt-ver').value=c.verNorm||'';
             document.getElementById('cmt-modal').classList.add('open');
@@ -352,8 +439,26 @@ function(WebMap,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,esriConfig,Sear
         },
         toggleAct(key, el) {
             const chk=document.getElementById('chk-'+key); chk.checked=!chk.checked; el.classList.toggle('on',chk.checked);
-            document.getElementById('fine-wrap').style.display=document.getElementById('chk-fine').checked?'block':'none';
-            if(!document.getElementById('chk-fine').checked) document.getElementById('fine-amount').value='';
+            if(key==='fine'){
+                const fineWrap=document.getElementById('fine-amount-wrap');
+                const fineInput=document.getElementById('fine-amount');
+                if(fineWrap&&fineInput){
+                    if(chk.checked){
+                        const cur=S.cases.find(x=>x.id===S.selectedId);
+                        const amt=cur&&cur.fineAmt!=null?Number(cur.fineAmt):NaN;
+                        if(Number.isFinite(amt)&&amt>0){
+                            fineWrap.style.display='block';
+                            fineInput.value=amt.toLocaleString();
+                        }else{
+                            fineWrap.style.display='block';
+                            fineInput.value='—';
+                        }
+                    } else {
+                        fineWrap.style.display='none';
+                        fineInput.value='';
+                    }
+                }
+            }
         },
         async saveDecision() {
             const id=S.selectedId, c=S.cases.find(x=>x.id===id); if(!c) return;
@@ -370,9 +475,12 @@ function(WebMap,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,esriConfig,Sear
                 acts=chks.filter(a=>document.getElementById('chk-'+a).checked).map(a=>({fine:'Fine',demo:'Demolish',new:'New Permit',renew:'Renew Permit'}[a]));
                 if(!acts.length){ this.toast('Select at least one enforcement action','error'); return; }
                 if(acts.includes('Fine')){
-                    const amt=document.getElementById('fine-amount').value;
-                    if(!amt||parseFloat(amt)<=0){ this.toast('Enter a valid fine amount (RWF)','error'); return; }
-                    fine=parseFloat(amt);
+                    const amt=c.fineAmt!=null?Number(c.fineAmt):null;
+                    if(!amt||isNaN(amt)||amt<=0){
+                        this.toast('Fine amount is missing or invalid for this case (RWF)','error');
+                        return;
+                    }
+                    fine=amt;
                 }
                 ver='verified';
                 committeeVerificationStatus='Verified';
@@ -384,27 +492,40 @@ function(WebMap,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,esriConfig,Sear
                 committeeVerificationStatus='Verified';
                 committeeCompliantStatus='Compliant';
             } else {
-                const verSel=document.getElementById('cmt-ver');
-                ver=verSel?verSel.value:'';
-                if(!ver){ this.toast('Please select verification status','error'); return; }
+                // Review path — verification forced to "under_review" with required comment
+                ver='under_review';
                 if(!comment){ this.toast('Please add notes for review decision','error'); return; }
-                committeeVerificationStatus=ver==='under_review'?'Review':(ver==='verified'?'Verified':'Not Verified');
-                committeeCompliantStatus=ver==='verified'?'Compliant':'Non Compliant';
+                committeeVerificationStatus='Review';
+                committeeCompliantStatus='';
             }
 
             const committeeActionStr=toCommitteeActionString(acts);
-            const caseObjectId=c.backendObjectId||c.id;
+            let caseIdentifier=null;
+            if(c.backendObjectId!=null){
+                const n=Number(c.backendObjectId);
+                if(Number.isFinite(n)&&n>0) caseIdentifier=n;
+            }
+            if(caseIdentifier==null&&c.id!=null){
+                const n=parseInt(String(c.id),10);
+                if(Number.isFinite(n)&&n>0) caseIdentifier=n;
+            }
+            if(caseIdentifier==null){
+                this.toast('Case OBJECTID is missing or invalid — cannot save decision','error');
+                return;
+            }
             const baseUrl=(CFG.API_BASE_URL||'').replace(/\/+$/,'');
             if(!baseUrl){ this.toast('API base URL is not configured','error'); return; }
-            const url=baseUrl+'/decision-enforcement/from-case/'+encodeURIComponent(caseObjectId);
+            const url=baseUrl+'/decision-enforcement/from-case/'+encodeURIComponent(caseIdentifier);
             const payload={
                 committee_action:committeeActionStr,
-                committeeverification_status:committeeVerificationStatus,
-                committeecompliantstatus:committeeCompliantStatus,
+                committeeverification_status:committeeVerificationStatus||null,
+                committeecompliantstatus:committeeCompliantStatus||null,
                 fine_amount:fine!=null?fine:null,
-                comment:comment||null
+                comment:committeeVerificationStatus==='Review'?(comment||null):null
             };
 
+            const saveBtn=document.getElementById('save-committee-btn');
+            if(saveBtn) saveBtn.disabled=true;
             try{
                 this.toast('Saving decision to server…','info');
                 const res=await fetch(url,{
@@ -427,6 +548,8 @@ function(WebMap,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,esriConfig,Sear
             }catch(err){
                 console.error(err);
                 this.toast('Error saving decision to server','error');
+            }finally{
+                if(saveBtn) saveBtn.disabled=false;
             }
         },
         saveCommitteeAction() {
