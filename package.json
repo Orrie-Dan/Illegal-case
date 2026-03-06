@@ -16,15 +16,4 @@
     "vite": "^5.0.0"
   }
 }
-{
-  "name": "illegal-case-management-dashboard",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "live-server --port=5173 --open=Case_Management_Dashboard_v2.html"
-  },
-  "devDependencies": {
-    "live-server": "^1.2.2"
-  }
-}
 
