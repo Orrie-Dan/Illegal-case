@@ -44,27 +44,25 @@ function animVal(id,target) {
 }
 
 require([
-    "esri/WebMap",
+    "esri/Map",
     "esri/views/MapView",
     "esri/layers/FeatureLayer",
     "esri/layers/GraphicsLayer",
     "esri/Graphic",
     "esri/rest/support/Query",
-    "esri/config",
     "esri/widgets/Search",
     "esri/widgets/BasemapGallery",
     "esri/widgets/Expand",
     "esri/widgets/LayerList"
 ],
-function(WebMap,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,esriConfig,Search,BasemapGallery,Expand,LayerList) {
-    esriConfig.portalUrl = CFG.PORTAL;
-    const webmap = new WebMap({ portalItem:{ id:CFG.WEBMAP, portal:{url:CFG.PORTAL} } });
-    const gl = new GraphicsLayer({ listMode:'hide' }); S.gl=gl; webmap.add(gl);
-    const view = new MapView({ container:'mapView', map:webmap, ui:{components:['zoom']}, popup:{autoOpenEnabled:false} }); S.view=view;
-    let fl;
+function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGallery,Expand,LayerList) {
+    // Use Map + public basemap instead of portal WebMap so the app works on Vercel (no portal credentials)
+    const map = new Map({ basemap: "streets-navigation-vector" });
+    const gl = new GraphicsLayer({ listMode:'hide' }); S.gl=gl; map.add(gl);
+    const fl = new FeatureLayer({ url: CFG.LAYER, outFields: ['*'] });
+    map.add(fl);
+    const view = new MapView({ container:'mapView', map, ui:{components:['zoom']}, popup:{autoOpenEnabled:false} }); S.view=view;
     view.when().then(()=>{
-        fl=webmap.allLayers.find(l=>l.type==='feature'&&l.url&&l.url.toLowerCase().includes('case_inspection'));
-        if(!fl){ fl=new FeatureLayer({url:CFG.LAYER,outFields:['*']}); webmap.add(fl); }
         const searchWidget=new Search({ view });
         view.ui.add(searchWidget,"top-right");
         const basemapGallery=new BasemapGallery({ view });
