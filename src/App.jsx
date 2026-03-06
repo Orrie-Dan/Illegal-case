@@ -59,14 +59,7 @@ function App() {
       <header className="header fade-in">
         <div className="header-left">
           <div className="brand-icon">
-            <span className="icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2L2 8v14h20V8L12 2z" />
-                <path d="M8 12v6h3v-6M13 12v6h3v-6" />
-                <path d="M8 10.5a1.5 1.5 0 0 1 3 0V12H8v-1.5z" />
-                <path d="M13 10.5a1.5 1.5 0 0 1 3 0V12h-3v-1.5z" />
-              </svg>
-            </span>
+            <img src="/citizen-dashboard-logo.png" alt="Bugesera Illegal Case Management" />
           </div>
           <div className="brand-text">
             <h1 className="page-title">Illegal Case Management</h1>
@@ -77,6 +70,12 @@ function App() {
           <div className="live-indicator">
             <div className="live-dot"></div>
             <span className="live-text">Live</span>
+          </div>
+          <div className="header-status">
+            <span className="header-status-label">Case status</span>
+            <span id="header-status-pill" className="pill pill-muted header-status-pill">
+              No case selected
+            </span>
           </div>
           <div className="search-box">
             <span className="icon icon-sm" style={{ color: 'var(--text-muted)' }}>
