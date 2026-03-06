@@ -1,4 +1,4 @@
-const CFG = { PORTAL: 'https://gh.space.gov.rw/portal/', WEBMAP: '71f7636be6f14ed287abd35e857569ca', LAYER: 'https://gh.space.gov.rw/server/rest/services/case_inspection/FeatureServer/3', API_BASE_URL: 'http://localhost:8000' };
+const CFG = { PORTAL: 'https://gh.space.gov.rw/portal/', WEBMAP: '71f7636be6f14ed287abd35e857569ca', LAYER: 'https://gh.space.gov.rw/server/rest/services/case_inspection/FeatureServer/3', API_BASE_URL: '192.168.1.116:8000' };
 const F = { caseid:'caseid', upi:'upi', source:'source_data', visitStatus:'visit_status', inspector:'inspector1', inspectingDate:'inspecting_date', description:'case_description', actionTaken:'action_taken', globalid:'globalid', verificationStatus:'committeeverification_status', sector:'sector', cell:'cell', village:'village', committeeAction:'committee_action', field_suggested_actions:'field_suggested_actions', fine_amount:'fine_amount' };
 const S = { cases:[], filtered:[], selectedId:null, srcMap:{}, statMap:{}, gl:null, view:null, dec:null };
 let pieInst=null, lineInst=null, sectorInst=null, timeMode='week';
@@ -43,20 +43,8 @@ function animVal(id,target) {
     requestAnimationFrame(step);
 }
 
-require([
-    "esri/WebMap",
-    "esri/views/MapView",
-    "esri/layers/FeatureLayer",
-    "esri/layers/GraphicsLayer",
-    "esri/Graphic",
-    "esri/rest/support/Query",
-    "esri/config",
-    "esri/widgets/Search",
-    "esri/widgets/BasemapGallery",
-    "esri/widgets/Expand",
-    "esri/widgets/LayerList"
-],
-function(WebMap,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,esriConfig,Search,BasemapGallery,Expand,LayerList) {
+require(["esri/WebMap","esri/views/MapView","esri/layers/FeatureLayer","esri/layers/GraphicsLayer","esri/Graphic","esri/rest/support/Query","esri/config"],
+function(WebMap,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,esriConfig) {
     esriConfig.portalUrl = CFG.PORTAL;
     const webmap = new WebMap({ portalItem:{ id:CFG.WEBMAP, portal:{url:CFG.PORTAL} } });
     const gl = new GraphicsLayer({ listMode:'hide' }); S.gl=gl; webmap.add(gl);
@@ -65,14 +53,6 @@ function(WebMap,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,esriConfig,Sear
     view.when().then(()=>{
         fl=webmap.allLayers.find(l=>l.type==='feature'&&l.url&&l.url.toLowerCase().includes('case_inspection'));
         if(!fl){ fl=new FeatureLayer({url:CFG.LAYER,outFields:['*']}); webmap.add(fl); }
-        const searchWidget=new Search({ view });
-        view.ui.add(searchWidget,"top-right");
-        const basemapGallery=new BasemapGallery({ view });
-        const basemapExpand=new Expand({ view, content:basemapGallery, group:"top-right", expanded:false });
-        view.ui.add(basemapExpand,"top-right");
-        const layerList=new LayerList({ view });
-        const layerExpand=new Expand({ view, content:layerList, group:"top-right", expanded:false });
-        view.ui.add(layerExpand,"top-right");
         return fl.load();
     }).then(()=>{
         fl.fields.forEach(f=>{
