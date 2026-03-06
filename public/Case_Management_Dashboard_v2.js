@@ -81,6 +81,18 @@ require([
     "esri/widgets/LayerList"
 ],
 function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGallery,Expand,LayerList) {
+    // Wait for React to render DOM (fixes race on Vercel where callback ran before mount)
+    function whenElement(id, timeoutMs) {
+        timeoutMs = timeoutMs || 15000;
+        return new Promise(function(resolve) {
+            if (document.getElementById(id)) return resolve();
+            var deadline = Date.now() + timeoutMs;
+            var t = setInterval(function() {
+                if (document.getElementById(id)) { clearInterval(t); resolve(); return; }
+                if (Date.now() > deadline) { clearInterval(t); resolve(); }
+            }, 50);
+        });
+    }
     // Use Map + public basemap instead of portal WebMap so the app works on Vercel (no portal credentials)
     const map = new Map({ basemap: "streets-navigation-vector" });
     const gl = new GraphicsLayer({ listMode:'hide' }); S.gl=gl; map.add(gl);
@@ -97,7 +109,7 @@ function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGall
         const layerExpand=new Expand({ view, content:layerList, group:"top-right", expanded:false });
         view.ui.add(layerExpand,"top-right");
         return fl.load();
-    }).then(()=>{
+    }).then(function() { return whenElement('filter-source'); }).then(()=>{
         fl.fields.forEach(f=>{
             if(f.name===F.source&&f.domain?.codedValues) f.domain.codedValues.forEach(cv=>{S.srcMap[cv.code]=cv.name;});
             if(f.name===F.visitStatus&&f.domain?.codedValues) f.domain.codedValues.forEach(cv=>{S.statMap[cv.code]=cv.name;});
@@ -205,7 +217,7 @@ function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGall
         animVal('total-num',S.cases.length);
         APP.applyFilters();
         APP.toast('Data loaded — '+S.cases.length+' records','success');
-    }).catch(err=>{ console.error(err); document.getElementById('case-list').innerHTML='<div class="empty-state"><svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/></svg><div>Connection Error — check portal access</div></div>'; APP.toast('Error loading data','error'); });
+    }).catch(err=>{ console.error(err); var errEl=document.getElementById('cases-tbody'); if(errEl) errEl.innerHTML='<tr><td colspan="5" style="padding:16px;text-align:center;font-size:12px;color:var(--text-muted)">Connection Error — check portal access</td></tr>'; if(window.APP&&window.APP.toast) window.APP.toast('Error loading data','error'); });
 
     view.on('click',event=>{ view.hitTest(event,{include:gl}).then(r=>{ const hit=r.results.find(r=>r.graphic?.attributes?.cid); if(hit) APP.selectCase(hit.graphic.attributes.cid); }); });
 
