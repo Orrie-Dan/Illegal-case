@@ -7,6 +7,13 @@ let timeVerFilter='verified', timeActFilter='';
 
 const esc = s => s==null?'':String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const fd = ts => ts ? new Date(ts).toLocaleDateString('en-RW',{year:'numeric',month:'short',day:'numeric'}) : '—';
+function toDateString(ts) {
+    if(!ts) return null;
+    const d=new Date(ts);
+    if(isNaN(d.getTime())) return null;
+    const y=d.getFullYear(), m=d.getMonth()+1, day=d.getDate();
+    return y+'-'+String(m).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+}
 function normVer(v) {
     if(v==null||v==='') return 'not_verified';
     const s=String(v).toLowerCase().replace(/[\s\-_]+/g,'_');
@@ -27,36 +34,11 @@ function normActs(v) {
         return s;
     }).filter(Boolean);
 }
-function normAttachments(v) {
-    if(!v) return [];
-    if(Array.isArray(v)) return v.map(x=>String(x)).filter(Boolean);
-    if(typeof v==='string'){
-        try{
-            const parsed=JSON.parse(v);
-            if(Array.isArray(parsed)) return parsed.map(x=>String(x)).filter(Boolean);
-        }catch(e){}
-        return v.split(',').map(s=>s.trim()).filter(Boolean);
-    }
-    return [];
-}
 function isNC(c) {
     const v=String(c.rawVS||'').toLowerCase(), lbl=(S.statMap[c.rawVS]||'').toLowerCase();
     return v.includes('illegal')||lbl.includes('illegal')||v==='2'||lbl.includes('non');
 }
 function pillClass(a) { return {Fine:'pill-fine',Demolish:'pill-demolish','New Permit':'pill-newpermit','Renew Permit':'pill-renewpermit'}[a]||'pill-pending'; }
-function updateHeaderStatus(c) {
-    const el=document.getElementById('header-status-pill');
-    if(!el) return;
-    if(!c){
-        el.textContent='No case selected';
-        el.className='pill pill-muted header-status-pill';
-        return;
-    }
-    const cls=c.verNorm==='verified'?'pill-verified':c.verNorm==='under_review'?'pill-underreview':'pill-notverified';
-    const lbl=c.verNorm==='verified'?'Verified':c.verNorm==='under_review'?'Under Review':'Unverified';
-    el.textContent=lbl;
-    el.className='pill '+cls+' header-status-pill';
-}
 function toCommitteeActionString(acts) {
     if(!acts || !acts.length) return null;
     return acts.map(a=>a==='Fine'?'Fines':a).join(', ');
@@ -81,18 +63,6 @@ require([
     "esri/widgets/LayerList"
 ],
 function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGallery,Expand,LayerList) {
-    // Wait for React to render DOM (fixes race on Vercel where callback ran before mount)
-    function whenElement(id, timeoutMs) {
-        timeoutMs = timeoutMs || 15000;
-        return new Promise(function(resolve) {
-            if (document.getElementById(id)) return resolve();
-            var deadline = Date.now() + timeoutMs;
-            var t = setInterval(function() {
-                if (document.getElementById(id)) { clearInterval(t); resolve(); return; }
-                if (Date.now() > deadline) { clearInterval(t); resolve(); }
-            }, 50);
-        });
-    }
     // Use Map + public basemap instead of portal WebMap so the app works on Vercel (no portal credentials)
     const map = new Map({ basemap: "streets-navigation-vector" });
     const gl = new GraphicsLayer({ listMode:'hide' }); S.gl=gl; map.add(gl);
@@ -109,92 +79,22 @@ function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGall
         const layerExpand=new Expand({ view, content:layerList, group:"top-right", expanded:false });
         view.ui.add(layerExpand,"top-right");
         return fl.load();
-    }).then(function() { return whenElement('filter-source'); }).then(()=>{
+    }).then(()=>{
         fl.fields.forEach(f=>{
             if(f.name===F.source&&f.domain?.codedValues) f.domain.codedValues.forEach(cv=>{S.srcMap[cv.code]=cv.name;});
             if(f.name===F.visitStatus&&f.domain?.codedValues) f.domain.codedValues.forEach(cv=>{S.statMap[cv.code]=cv.name;});
         });
         if(!Object.keys(S.statMap).length) S.statMap={0:'Not Visited',1:'Visited Legal',2:'Visited Illegal'};
-        // Ensure source options: Citizen, Satellite, Field Visit (fallback if layer domain is empty)
-        if(!Object.keys(S.srcMap).length){
-            S.srcMap={'1':'Citizen','2':'Satellite','3':'Field Visit'};
-        }
+        if(!Object.keys(S.srcMap).length) S.srcMap={'1':'Citizen','2':'Satellite','3':'Field Visit'};
         const srcSel=document.getElementById('filter-source');
         Object.entries(S.srcMap).forEach(([code,label])=>{ const o=document.createElement('option'); o.value=String(code); o.textContent=label; srcSel.appendChild(o); });
         const q=new Query(); q.where='1=1'; q.outFields=['*']; q.returnGeometry=true; q.num=2000;
-        const baseUrl=(CFG.API_BASE_URL||'').replace(/\/+$/,'');
-        const casesPromise=baseUrl?fetch(baseUrl+'/cases').then(r=>r.ok?r.json():[]).catch(()=>[]):Promise.resolve([]);
-        const layerPromise=fl.queryFeatures(q);
-        return Promise.all([casesPromise,layerPromise]);
-    }).then(async ([apiCases,arcResults])=>{
-        if(!Array.isArray(apiCases)) apiCases=[];
-        const arcFeatures=arcResults&&arcResults.features?arcResults.features:[];
-        const geoByOid=new Map();
-        const geoByGlobalId=new Map();
-        arcFeatures.forEach(f=>{
+        return fl.queryFeatures(q);
+    }).then(results=>{
+        S.cases=results.features.map(f=>{
             const a=f.attributes||{};
-            const oid=a['OBJECTID']!=null?a['OBJECTID']:a['objectid'];
-            const gid=a[F.globalid]||a['globalid'];
-            if(oid!=null&&Number.isFinite(Number(oid))) geoByOid.set(Number(oid),f.geometry);
-            if(gid) geoByGlobalId.set(String(gid).replace(/[{}]/g,'').toLowerCase(),f.geometry);
+            return { id:a[F.caseid]||a['OBJECTID']||'', backendObjectId:a['OBJECTID'], upi:a[F.upi]||'', source:a[F.source], srcLabel:S.srcMap[a[F.source]]||String(a[F.source]||''), rawVS:a[F.visitStatus], vsLabel:S.statMap[a[F.visitStatus]]||String(a[F.visitStatus]||''), inspector:a[F.inspector]||'', inspDate:a[F.inspectingDate], description:a[F.description]||'', actionTaken:a[F.actionTaken]||'', globalid:a[F.globalid]||'', rawVer:a[F.verificationStatus], verNorm:normVer(a[F.verificationStatus]), sector:a[F.sector]||'', cell:a[F.cell]||'', village:a[F.village]||'', fieldSuggestedActions:a[F.field_suggested_actions]||'', acts:normActs(a[F.committeeAction]), fineAmt:a[F.fine_amount]!=null?a[F.fine_amount]:null, attachments:[], geo:f.geometry };
         });
-
-        if(!Array.isArray(apiCases)||apiCases.length===0){
-            apiCases=arcFeatures.map(f=>{
-                const a=f.attributes||{};
-                const oid=a['OBJECTID']!=null?a['OBJECTID']:a['objectid'];
-                return {
-                    objectid:oid!=null?Number(oid):null,
-                    globalid:a[F.globalid]||a['globalid']||'',
-                    caseid:a[F.caseid]||String(oid||''),
-                    upi:a[F.upi]||'',
-                    visit_status:S.statMap[a[F.visitStatus]]||String(a[F.visitStatus]||''),
-                    committeeverification_status:a[F.verificationStatus],
-                    field_suggested_actions:a[F.field_suggested_actions]||'',
-                    committee_action:a[F.committeeAction],
-                    fine_amount:a[F.fine_amount]!=null?a[F.fine_amount]:null,
-                    sector:a[F.sector]||'',
-                    cell:a[F.cell]||'',
-                    village:a[F.village]||'',
-                    inspection_from_data:a[F.inspectingDate]
-                };
-            });
-        }
-
-        const codeForLabel={};
-        Object.entries(S.statMap).forEach(([code,label])=>{ codeForLabel[String(label).toLowerCase()]=code; codeForLabel[String(label)]=code; });
-
-        S.cases=apiCases.map(row=>{
-            const oid=row.objectid!=null?Number(row.objectid):null;
-            const id=row.caseid||String(oid||'');
-            const rawVS=codeForLabel[String(row.visit_status||'').toLowerCase()]||codeForLabel[row.visit_status]||row.visit_status;
-            const geo=oid!=null&&geoByOid.has(oid)?geoByOid.get(oid):(row.globalid?geoByGlobalId.get(String(row.globalid).replace(/[{}]/g,'').toLowerCase()):null)||null;
-            return {
-                id,
-                backendObjectId:oid,
-                upi:row.upi||'',
-                source:row.source_data!=null?row.source_data:null,
-                srcLabel:row.source_data!=null?(S.srcMap[row.source_data]||String(row.source_data)):'',
-                rawVS,
-                vsLabel:row.visit_status||'',
-                inspector:row.inspector||'',
-                inspDate:row.inspection_from_data||row.inspecting_date||null,
-                description:row.description||row.case_description||'',
-                actionTaken:row.actionTaken||row.action_taken||'',
-                globalid:row.globalid||'',
-                rawVer:row.committeeverification_status,
-                verNorm:normVer(row.committeeverification_status),
-                sector:row.sector||'',
-                cell:row.cell||'',
-                village:row.village||'',
-                fieldSuggestedActions:row.field_suggested_actions||'',
-                acts:normActs(row.committee_action),
-                attachments:normAttachments(row.attachments||row.case_attachments||row.attachment_urls||row.files),
-                fineAmt:row.fine_amount!=null&&!isNaN(Number(row.fine_amount))?Number(row.fine_amount):null,
-                geo
-            };
-        });
-
         const sectors=[...new Set(S.cases.map(c=>c.sector).filter(Boolean))].sort();
         const sectSel=document.getElementById('filter-sector');
         sectors.forEach(s=>{ const o=document.createElement('option'); o.value=s; o.textContent=s; sectSel.appendChild(o); });
@@ -217,7 +117,7 @@ function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGall
         animVal('total-num',S.cases.length);
         APP.applyFilters();
         APP.toast('Data loaded — '+S.cases.length+' records','success');
-    }).catch(err=>{ console.error(err); var errEl=document.getElementById('cases-tbody'); if(errEl) errEl.innerHTML='<tr><td colspan="5" style="padding:16px;text-align:center;font-size:12px;color:var(--text-muted)">Connection Error — check portal access</td></tr>'; if(window.APP&&window.APP.toast) window.APP.toast('Error loading data','error'); });
+    }).catch(err=>{ console.error(err); const tbody=document.getElementById('cases-tbody'); if(tbody) tbody.innerHTML='<tr><td colspan="5" style="padding:16px;text-align:center"><div class="empty-state"><svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/></svg><div>Connection Error — check portal access</div></div></td></tr>'; APP.toast('Error loading data','error'); });
 
     view.on('click',event=>{ view.hitTest(event,{include:gl}).then(r=>{ const hit=r.results.find(r=>r.graphic?.attributes?.cid); if(hit) APP.selectCase(hit.graphic.attributes.cid); }); });
 
@@ -232,8 +132,6 @@ function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGall
             const act=document.getElementById('filter-action')?.value||'';
             const fromVal=document.getElementById('filter-from')?.value||'';
             const toVal=document.getElementById('filter-to')?.value||'';
-            const fromDate=fromVal?new Date(fromVal):null;
-            const toDate=toVal?new Date(toVal):null;
             S.filtered=S.cases.filter(c=>{
                 if(!isNC(c)) return false;
                 if(src!==''){
@@ -245,11 +143,11 @@ function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGall
                 if(cell!==''&&c.cell!==cell) return false;
                 if(vs!==''&&String(c.rawVS)!==vs) return false;
                 if(act!==''&&!c.acts.includes(act)) return false;
-                if(fromDate||toDate){
-                    if(!c.inspDate) return false;
-                    const d=new Date(c.inspDate);
-                    if(fromDate&&d<fromDate) return false;
-                    if(toDate&&d>toDate) return false;
+                if(fromVal||toVal){
+                    const caseDateStr=toDateString(c.inspDate);
+                    if(!caseDateStr) return false;
+                    if(fromVal&&caseDateStr<fromVal) return false;
+                    if(toVal&&caseDateStr>toVal) return false;
                 }
                 if(search&&![c.id,c.upi,c.sector,c.cell,c.village,c.description].join(' ').toLowerCase().includes(search)) return false;
                 return true;
@@ -322,6 +220,12 @@ function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGall
             animVal('kpi-newpermit', np);
             animVal('kpi-renewed', rp);
         },
+        zoomToSelectedCase() {
+            if(!S.view||!S.selectedId) return;
+            const c=S.cases.find(x=>x.id===S.selectedId);
+            if(!c||!c.geo) return;
+            S.view.goTo({ target:c.geo, zoom:16 }, { duration:600 });
+        },
         renderMap() {
             if(!S.gl) return; S.gl.removeAll();
             let plotted=0;
@@ -391,10 +295,10 @@ function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGall
             this.renderMap();
             this.renderList();
             if(S.selectedId){
+                this.zoomToSelectedCase();
                 const el=document.getElementById('row-'+S.selectedId);
                 if(el) el.scrollIntoView({behavior:'smooth',block:'nearest'});
             }
-            updateHeaderStatus(S.cases.find(x=>x.id===S.selectedId)||null);
         },
         updateRowStatus(id, value) {
             const c=S.cases.find(x=>x.id===id);
@@ -406,28 +310,15 @@ function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGall
             this.renderMap();
             this.renderList();
             this.renderCharts();
-            updateHeaderStatus(S.cases.find(x=>x.id===S.selectedId)||null);
         },
         openView(id) {
             const c=S.cases.find(x=>x.id===id); if(!c) return;
             S.selectedId=id; this.renderMap(); this.renderList();
+            this.zoomToSelectedCase();
             const vc={'verified':'pill-verified','not_verified':'pill-notverified','under_review':'pill-underreview'}[c.verNorm]||'';
             const vl={'verified':'Verified','not_verified':'Unverified','under_review':'Under Review'}[c.verNorm]||'—';
             const ap=c.acts.length?c.acts.map(a=>`<span class="pill ${pillClass(a)}" style="margin:2px">${esc(a)}</span>`).join(''):'<span style="color:var(--text-muted)">None recorded</span>';
             const location=[c.sector,c.cell,c.village].filter(Boolean).join(' • ')||'—';
-            const attachmentsHtml=(c.attachments&&c.attachments.length)?
-                c.attachments.map((att,idx)=>{
-                    const raw=String(att||'').trim();
-                    const label=raw.split('/').pop()||`Attachment ${idx+1}`;
-                    const safeLabel=esc(label);
-                    const safeUrl=esc(raw);
-                    const isLink=raw.startsWith('http://')||raw.startsWith('https://');
-                    if(isLink){
-                        return `<a href="${safeUrl}" target="_blank" rel="noopener" class="attachment-pill">${safeLabel}</a>`;
-                    }
-                    return `<span class="attachment-pill">${safeLabel}</span>`;
-                }).join(''):
-                '<span class="attachment-empty">No attachments uploaded</span>';
             document.getElementById('view-body').innerHTML=`
                 <div class="case-detail-header">
                     <div class="case-detail-main">
@@ -456,7 +347,17 @@ function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGall
                         <div class="detail-item"><div class="detail-label">Committee Actions</div><div class="detail-value" style="display:flex;flex-wrap:wrap;gap:4px">${ap}</div></div>
                         ${c.fineAmt?`<div class="detail-item"><div class="detail-label">Fine Amount</div><div class="detail-value"><span class="rwf-badge">RWF</span> <span class="mono">${Number(c.fineAmt).toLocaleString()}</span></div></div>`:''}
                         <div class="detail-full"><div class="detail-label" style="margin-bottom:5px">Case Description</div><div class="detail-desc">${esc(c.description||'No description.')}</div></div>
-                        <div class="detail-full attachments-block"><div class="detail-label" style="margin-bottom:5px">Attachments</div><div class="attachments-list">${attachmentsHtml}</div></div>
+                        <div class="detail-divider"></div>
+                        <div class="detail-full">
+                            <div class="detail-label" style="margin-bottom:6px">Attachments</div>
+                            <div class="attachments-list">
+                                ${(c.attachments&&c.attachments.length)?c.attachments.map(at=>{
+                                    const url=typeof at==='string'?at:(at&&at.url);
+                                    const name=typeof at==='object'&&at&&at.name?at.name:(url||'').split('/').pop()||'Attachment';
+                                    return url?`<a class="attachment-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer"><span class="icon icon-sm">📎</span> ${esc(name)}</a>`:'';
+                                }).filter(Boolean).join('')||'<span class="text-muted">No attachments</span>':'<span class="text-muted">No attachments</span>'}
+                            </div>
+                        </div>
                     </div>
                 </div>`;
             document.getElementById('view-cmt-btn').onclick=()=>{ this.closeModal('view-modal'); this.openCmt(id); };
@@ -793,6 +694,4 @@ function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGall
         });
     });
 });
-
-
 

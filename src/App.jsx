@@ -58,8 +58,8 @@ function App() {
       {/* HEADER */}
       <header className="header fade-in">
         <div className="header-left">
-          <div className="brand-icon">
-            <img src="/citizen-dashboard-logo.png" alt="Bugesera Illegal Case Management" />
+          <div className="brand-icon brand-icon-logo">
+            <img src="/citizen-dashboard-logo.png" alt="Logo" className="brand-logo-img" />
           </div>
           <div className="brand-text">
             <h1 className="page-title">Illegal Case Management</h1>
@@ -70,12 +70,6 @@ function App() {
           <div className="live-indicator">
             <div className="live-dot"></div>
             <span className="live-text">Live</span>
-          </div>
-          <div className="header-status">
-            <span className="header-status-label">Case status</span>
-            <span id="header-status-pill" className="pill pill-muted header-status-pill">
-              No case selected
-            </span>
           </div>
           <div className="search-box">
             <span className="icon icon-sm" style={{ color: 'var(--text-muted)' }}>
