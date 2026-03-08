@@ -668,18 +668,17 @@ function App() {
               </div>
             </div>
 
-            <div className="ag" id="ver-group">
-              <label>Verification Status</label>
+            <div className="ag" id="ver-group" style={{ display: 'block' }}>
+              <label>Verification Status <span style={{ color: '#ef4444' }}>*</span></label>
               <select id="cmt-ver">
                 <option value="">— Select Status —</option>
                 <option value="verified">Verified</option>
-                <option value="not_verified">Not Verified</option>
                 <option value="under_review">Under Review</option>
               </select>
             </div>
-            <div className="ag">
-              <label>Notes</label>
-              <input type="text" id="cmt-notes" placeholder="Optional committee notes…" />
+            <div className="ag" id="notes-group" style={{ display: 'none' }}>
+              <label>Notes <span style={{ color: '#ef4444' }}>*</span></label>
+              <input type="text" id="cmt-notes" placeholder="Required: explain why case needs review…" />
             </div>
           </div>
           <div className="modal-footer">
