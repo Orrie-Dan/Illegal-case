@@ -3,6 +3,8 @@ const CFG = {
   WEBMAP: "71f7636be6f14ed287abd35e857569ca",
   LAYER:
     "https://gh.space.gov.rw/server/rest/services/case_inspection/FeatureServer/3",
+  APPEALS_LAYER:
+    "https://gh.space.gov.rw/server/rest/services/Hosted/service_4b1f069978b0467a9d8eabdf74dfc1ad_form/FeatureServer/0",
   API_BASE_URL: "http://172.20.10.3:8000",
 };
 const F = {
@@ -32,6 +34,11 @@ const S = {
   gl: null,
   view: null,
   dec: null,
+  appeals: [],
+  selectedAppealId: null,
+  appealDec: null,
+  currentTab: "cases",
+  appealsFL: null,
 };
 let pieInst = null,
   lineInst = null,
@@ -214,6 +221,8 @@ require([
   map.add(gl);
   const fl = new FeatureLayer({ url: CFG.LAYER, outFields: ["*"] });
   map.add(fl);
+  const appealsFL = new FeatureLayer({ url: CFG.APPEALS_LAYER, outFields: ["*"] });
+  S.appealsFL = appealsFL;
   const view = new MapView({
     container: "mapView",
     map,
@@ -433,6 +442,7 @@ require([
       animVal("total-num", S.cases.length);
       APP.applyFilters();
       APP.toast("Data loaded — " + S.cases.length + " records", "success");
+      APP.loadAppeals();
     })
     .catch((err) => {
       console.error(err);
@@ -1049,6 +1059,350 @@ require([
     saveCommitteeAction() {
       return this.saveDecision();
     },
+
+    // ==================== APPEALS FUNCTIONS ====================
+    async loadAppeals() {
+      try {
+        if (!S.appealsFL) {
+          console.warn("Appeals FeatureLayer not initialized");
+          return;
+        }
+        const query = S.appealsFL.createQuery();
+        query.where = "1=1";
+        query.outFields = ["*"];
+        query.returnGeometry = true;
+        const result = await S.appealsFL.queryFeatures(query);
+        const features = result.features || [];
+        S.appeals = features.map((f) => {
+          const a = f.attributes || {};
+          const getAttr = (key) => a[key] ?? a[key.toLowerCase()] ?? a[key.toUpperCase()] ?? "";
+          return {
+            objectid: a.objectid ?? a.OBJECTID,
+            globalid: getAttr("globalid"),
+            caseId: a.case_id ?? a.Case_ID ?? a.CASE_ID ?? a.caseId ?? "",
+            upi: getAttr("upi"),
+            name: getAttr("name"),
+            phone: a.phone_number ?? a.Phone_Number ?? "",
+            email: getAttr("email"),
+            province: getAttr("province"),
+            district: a.district_name ?? a.District_Name ?? "",
+            sector: a.sector_name ?? a.Sector_Name ?? "",
+            cell: a.cell_name ?? a.Cell_Name ?? "",
+            village: a.village_name ?? a.Village_Name ?? "",
+            complainIssue: a.complain_issue ?? a.Complain_Issue ?? "",
+            complainDescription: a.complain_description ?? a.Complain_Description ?? "",
+            complainValidity: a.complain_validity ?? a.Complain_Validity ?? "",
+            createdDate: a.created_date ?? a.Created_Date,
+            lastEditedDate: a.last_edited_date ?? a.Last_Edited_Date,
+            geometry: f.geometry,
+          };
+        });
+        this.renderAppealsTable();
+        const badge = document.getElementById("appeals-count-badge");
+        if (badge) {
+          badge.textContent = S.appeals.length;
+          badge.style.display = S.appeals.length > 0 ? "inline-flex" : "none";
+        }
+      } catch (err) {
+        console.error("Error loading appeals:", err);
+        this.toast("Error loading appeals", "error");
+      }
+    },
+
+    renderAppealsTable() {
+      const tbody = document.getElementById("appeals-tbody");
+      if (!tbody) return;
+      if (!S.appeals.length) {
+        tbody.innerHTML = `<tr><td colspan="6" style="padding:16px;text-align:center;font-size:12px;color:var(--text-muted)">No appeals found.</td></tr>`;
+        return;
+      }
+      const validityPill = (v) => {
+        const vl = String(v || "").toLowerCase();
+        if (vl === "valid") return `<span class="pill pill-success">Valid</span>`;
+        if (vl === "invalid") return `<span class="pill pill-danger">Invalid</span>`;
+        return `<span class="pill pill-muted">${esc(v || "Pending")}</span>`;
+      };
+      tbody.innerHTML = S.appeals
+        .map(
+          (ap) => `
+        <tr data-appeal-id="${esc(ap.objectid)}">
+          <td><span class="case-id-link" onclick="APP.viewAppeal(${ap.objectid})">${esc(ap.caseId || ap.objectid)}</span></td>
+          <td>${esc(ap.upi)}</td>
+          <td>${esc(ap.name)}</td>
+          <td>${esc(ap.complainIssue)}</td>
+          <td>${validityPill(ap.complainValidity)}</td>
+          <td>
+            <button class="btn btn-ghost btn-sm" onclick="APP.viewAppeal(${ap.objectid})">
+              <span class="icon icon-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>
+            </button>
+          </td>
+        </tr>
+      `
+        )
+        .join("");
+    },
+
+    switchTableTab(tab) {
+      S.currentTab = tab;
+      const casesContainer = document.getElementById("cases-table-container");
+      const appealsContainer = document.getElementById("appeals-table-container");
+      const tabCases = document.getElementById("tab-cases");
+      const tabAppeals = document.getElementById("tab-appeals");
+      
+      if (tab === "cases") {
+        if (casesContainer) casesContainer.style.display = "block";
+        if (appealsContainer) appealsContainer.style.display = "none";
+        if (tabCases) {
+          tabCases.style.background = "var(--accent)";
+          tabCases.style.color = "#fff";
+          tabCases.style.border = "none";
+        }
+        if (tabAppeals) {
+          tabAppeals.style.background = "var(--bg-surface)";
+          tabAppeals.style.color = "var(--text-muted)";
+          tabAppeals.style.border = "1px solid var(--border)";
+        }
+      } else {
+        if (casesContainer) casesContainer.style.display = "none";
+        if (appealsContainer) appealsContainer.style.display = "block";
+        if (tabAppeals) {
+          tabAppeals.style.background = "var(--accent)";
+          tabAppeals.style.color = "#fff";
+          tabAppeals.style.border = "none";
+        }
+        if (tabCases) {
+          tabCases.style.background = "var(--bg-surface)";
+          tabCases.style.color = "var(--text-muted)";
+          tabCases.style.border = "1px solid var(--border)";
+        }
+        if (!S.appeals.length) this.loadAppeals();
+      }
+    },
+
+    viewAppeal(objectid) {
+      const ap = S.appeals.find((a) => a.objectid === objectid);
+      if (!ap) return;
+      S.selectedAppealId = objectid;
+      const body = document.getElementById("appeal-view-body");
+      if (!body) return;
+      const formatDate = (ts) => {
+        if (!ts) return "—";
+        const d = new Date(ts);
+        return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+      };
+      const validityPill = (v) => {
+        const vl = String(v || "").toLowerCase();
+        if (vl === "valid") return `<span class="pill pill-success">Valid</span>`;
+        if (vl === "invalid") return `<span class="pill pill-danger">Invalid</span>`;
+        return `<span class="pill pill-muted">${esc(v || "Pending")}</span>`;
+      };
+      body.innerHTML = `
+        <div class="detail-grid">
+          <div class="detail-row"><div class="detail-label">Case ID</div><div class="detail-desc">${esc(ap.caseId || ap.objectid)}</div></div>
+          <div class="detail-row"><div class="detail-label">UPI</div><div class="detail-desc">${esc(ap.upi || "—")}</div></div>
+          <div class="detail-row"><div class="detail-label">Appellant Name</div><div class="detail-desc">${esc(ap.name || "—")}</div></div>
+          <div class="detail-row"><div class="detail-label">Phone</div><div class="detail-desc">${esc(ap.phone || "—")}</div></div>
+          <div class="detail-row"><div class="detail-label">Email</div><div class="detail-desc">${esc(ap.email || "—")}</div></div>
+          <div class="detail-full"><div class="detail-label">Location</div><div class="detail-desc">${esc(ap.province)} › ${esc(ap.district)} › ${esc(ap.sector)} › ${esc(ap.cell)} › ${esc(ap.village)}</div></div>
+          <div class="detail-full"><div class="detail-label">Complaint Issue</div><div class="detail-desc">${esc(ap.complainIssue || "—")}</div></div>
+          <div class="detail-full"><div class="detail-label">Complaint Description</div><div class="detail-desc">${esc(ap.complainDescription || "—")}</div></div>
+          <div class="detail-row"><div class="detail-label">Validity</div><div class="detail-desc">${validityPill(ap.complainValidity)}</div></div>
+          <div class="detail-row"><div class="detail-label">Submitted</div><div class="detail-desc">${formatDate(ap.createdDate)}</div></div>
+        </div>
+      `;
+      document.getElementById("appeal-cmt-btn").onclick = () => {
+        this.closeModal("appeal-view-modal");
+        this.openAppealCmt(objectid);
+      };
+      document.getElementById("appeal-view-modal").classList.add("open");
+    },
+
+    openAppealCmt(objectid) {
+      const ap = S.appeals.find((a) => a.objectid === objectid);
+      if (!ap) return;
+      S.selectedAppealId = objectid;
+      S.appealDec = null;
+      document.getElementById("appeal-cmt-info").innerHTML =
+        `<div class="detail-label" style="margin-bottom:4px">Appeal from: ${esc(ap.name)}</div>` +
+        `<div class="detail-desc">${esc(ap.complainIssue || "No issue recorded.")}</div>`;
+      ["c", "nc", "rv"].forEach((d) => {
+        document.getElementById("appeal-dlbl-" + d).className = "dec-label";
+        document.getElementById("appeal-dradio-" + d).className = "dec-radio";
+      });
+      document.getElementById("appeal-action-panel").style.display = "none";
+      document.getElementById("appeal-ver-group").style.display = "block";
+      document.getElementById("appeal-notes-group").style.display = "none";
+      ["fine", "demo", "new", "renew"].forEach((a) => {
+        const el = document.getElementById("appeal-chk-" + a);
+        if (el) el.checked = false;
+        const ach = document.getElementById("appeal-ach-" + a);
+        if (ach) ach.classList.remove("on");
+      });
+      const fineWrap = document.getElementById("appeal-fine-amount-wrap");
+      const fineInput = document.getElementById("appeal-fine-amount");
+      if (fineWrap) fineWrap.style.display = "none";
+      if (fineInput) fineInput.value = "";
+      document.getElementById("appeal-cmt-notes").value = "";
+      document.getElementById("appeal-cmt-ver").value = "";
+      document.getElementById("appeal-cmt-modal").classList.add("open");
+    },
+
+    pickAppealDec(d) {
+      S.appealDec = d;
+      const selMap = { c: "sel-c", nc: "sel-nc", rv: "sel-rv" };
+      ["c", "nc", "rv"].forEach((k) => {
+        document.getElementById("appeal-dlbl-" + k).className =
+          "dec-label" + (k === d ? " " + selMap[k] : "");
+        const r = document.getElementById("appeal-dradio-" + k);
+        r.className = "dec-radio" + (k === d ? " on" : "");
+      });
+      document.getElementById("appeal-action-panel").style.display =
+        d === "nc" ? "block" : "none";
+      document.getElementById("appeal-ver-group").style.display = "block";
+      document.getElementById("appeal-notes-group").style.display =
+        d === "rv" ? "block" : "none";
+    },
+
+    toggleAppealAct(key, el) {
+      const chk = document.getElementById("appeal-chk-" + key);
+      chk.checked = !chk.checked;
+      el.classList.toggle("on", chk.checked);
+      if (key === "fine") {
+        const fineWrap = document.getElementById("appeal-fine-amount-wrap");
+        if (fineWrap) fineWrap.style.display = chk.checked ? "block" : "none";
+      }
+    },
+
+    async saveAppealDecision() {
+      const objectid = S.selectedAppealId;
+      const ap = S.appeals.find((a) => a.objectid === objectid);
+      if (!ap) {
+        this.toast("Appeal not found", "error");
+        return;
+      }
+      const caseId = ap.caseId;
+      if (!caseId) {
+        this.toast("Case ID is missing for this appeal", "error");
+        return;
+      }
+      if (!S.appealDec) {
+        this.toast("Please choose a decision", "error");
+        return;
+      }
+      let acts = [];
+      let fine = null;
+      const notesInput = document.getElementById("appeal-cmt-notes");
+      const comment = (notesInput?.value || "").trim();
+      let committeeVerificationStatus = null;
+      let committeeCompliantStatus = null;
+      let committeeActionAppeal = "";
+
+      if (S.appealDec === "nc") {
+        const chks = ["fine", "demo", "new", "renew"];
+        acts = chks
+          .filter((a) => document.getElementById("appeal-chk-" + a).checked)
+          .map(
+            (a) =>
+              ({
+                fine: "Fines",
+                demo: "Demolish",
+                new: "New Permit",
+                renew: "Renew Permit",
+              })[a]
+          );
+        if (!acts.length) {
+          this.toast("Select at least one enforcement action", "error");
+          return;
+        }
+        const fineInput = document.getElementById("appeal-fine-amount");
+        if (acts.includes("Fines") && fineInput) {
+          const amt = Number(fineInput.value);
+          if (!amt || isNaN(amt) || amt <= 0) {
+            this.toast("Please enter a valid fine amount", "error");
+            return;
+          }
+          fine = amt;
+        }
+        const selVer = document.getElementById("appeal-cmt-ver")?.value;
+        if (!selVer) {
+          this.toast("Please select a verification status", "error");
+          return;
+        }
+        const verLabelMap = {
+          verified: "Verified",
+          not_verified: "Not Verified",
+          under_review: "Under Review",
+        };
+        committeeVerificationStatus = verLabelMap[selVer] || selVer;
+        committeeCompliantStatus = "Non Compliant";
+        committeeActionAppeal = acts.join(", ");
+      } else if (S.appealDec === "c") {
+        const selVer = document.getElementById("appeal-cmt-ver")?.value;
+        if (!selVer) {
+          this.toast("Please select a verification status", "error");
+          return;
+        }
+        const verLabelMap = {
+          verified: "Verified",
+          not_verified: "Not Verified",
+          under_review: "Under Review",
+        };
+        committeeVerificationStatus = verLabelMap[selVer] || selVer;
+        committeeCompliantStatus = "Compliant";
+        committeeActionAppeal = "";
+      } else {
+        if (!comment) {
+          this.toast("Please add notes for review decision", "error");
+          return;
+        }
+        committeeVerificationStatus = "Review";
+        committeeCompliantStatus = "";
+        committeeActionAppeal = "";
+      }
+
+      const baseUrl = (CFG.API_BASE_URL || "").replace(/\/+$/, "");
+      if (!baseUrl) {
+        this.toast("API base URL is not configured", "error");
+        return;
+      }
+      const url =
+        baseUrl +
+        "/decision-enforcement/from-case-appeal/" +
+        encodeURIComponent(String(caseId));
+      const payload = {
+        committee_action: "",
+        committee_action_appeal: committeeActionAppeal,
+        committeeverification_status: committeeVerificationStatus || null,
+        committeecompliantstatus: committeeCompliantStatus || null,
+        fine_amount: fine != null ? fine : null,
+        comment: comment || null,
+      };
+
+      const saveBtn = document.getElementById("save-appeal-btn");
+      if (saveBtn) saveBtn.disabled = true;
+      try {
+        this.toast("Saving appeal decision to server…", "info");
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || "Failed with status " + res.status);
+        }
+        this.closeModal("appeal-cmt-modal");
+        this.toast("Appeal decision saved successfully", "success");
+        this.loadAppeals();
+      } catch (err) {
+        console.error(err);
+        this.toast("Error saving appeal decision: " + err.message, "error");
+      } finally {
+        if (saveBtn) saveBtn.disabled = false;
+      }
+    },
+    // ==================== END APPEALS FUNCTIONS ====================
+
     renderCharts() {
       this.renderPie();
       this.renderSector();
