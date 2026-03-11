@@ -3,9 +3,7 @@ const CFG = {
   WEBMAP: "71f7636be6f14ed287abd35e857569ca",
   LAYER:
     "https://gh.space.gov.rw/server/rest/services/case_inspection/FeatureServer/3",
-  APPEALS_LAYER:
-    "https://gh.space.gov.rw/server/rest/services/Hosted/service_4b1f069978b0467a9d8eabdf74dfc1ad_form/FeatureServer/0",
-  API_BASE_URL: "http://172.20.10.3:8000",
+  API_BASE_URL: "http://192.168.1.116:8000",
 };
 const F = {
   caseid: "caseid",
@@ -221,8 +219,7 @@ require([
   map.add(gl);
   const fl = new FeatureLayer({ url: CFG.LAYER, outFields: ["*"] });
   map.add(fl);
-  const appealsFL = new FeatureLayer({ url: CFG.APPEALS_LAYER, outFields: ["*"] });
-  S.appealsFL = appealsFL;
+  S.appealsFL = fl;
   const view = new MapView({
     container: "mapView",
     map,
@@ -1068,33 +1065,52 @@ require([
           return;
         }
         const query = S.appealsFL.createQuery();
-        query.where = "1=1";
+        query.where = "has_appeal='true'";
         query.outFields = ["*"];
         query.returnGeometry = true;
         const result = await S.appealsFL.queryFeatures(query);
         const features = result.features || [];
         S.appeals = features.map((f) => {
           const a = f.attributes || {};
-          const getAttr = (key) => a[key] ?? a[key.toLowerCase()] ?? a[key.toUpperCase()] ?? "";
+          const oid = a.OBJECTID ?? a.objectid;
+          const rawVS = a[F.visitStatus] || a.visit_status || "";
           return {
-            objectid: a.objectid ?? a.OBJECTID,
-            globalid: getAttr("globalid"),
-            caseId: a.case_id ?? a.Case_ID ?? a.CASE_ID ?? a.caseId ?? "",
-            upi: getAttr("upi"),
-            name: getAttr("name"),
-            phone: a.phone_number ?? a.Phone_Number ?? "",
-            email: getAttr("email"),
-            province: getAttr("province"),
-            district: a.district_name ?? a.District_Name ?? "",
-            sector: a.sector_name ?? a.Sector_Name ?? "",
-            cell: a.cell_name ?? a.Cell_Name ?? "",
-            village: a.village_name ?? a.Village_Name ?? "",
-            complainIssue: a.complain_issue ?? a.Complain_Issue ?? "",
-            complainDescription: a.complain_description ?? a.Complain_Description ?? "",
-            complainValidity: a.complain_validity ?? a.Complain_Validity ?? "",
-            createdDate: a.created_date ?? a.Created_Date,
-            lastEditedDate: a.last_edited_date ?? a.Last_Edited_Date,
+            id: a[F.caseid] || String(oid || ""),
+            objectid: oid,
+            globalid: a[F.globalid] || a.globalid || "",
+            caseId: a[F.caseid] || String(oid || ""),
+            upi: a[F.upi] || a.upi || "",
+            source: a[F.source] != null ? a[F.source] : null,
+            srcLabel:
+              a[F.source] != null ? S.srcMap[a[F.source]] || "Unknown" : "",
+            visitStatus: rawVS,
+            vsLabel: S.statMap[rawVS] || rawVS || "",
+            rawVer:
+              a[F.verificationStatus] || a.committeeverification_status || "",
+            verNorm: normVer(
+              a[F.verificationStatus] || a.committeeverification_status || "",
+            ),
+            sector: a[F.sector] || a.sector || "",
+            cell: a[F.cell] || a.cell || "",
+            village: a[F.village] || a.village || "",
+            inspector: a[F.inspector] || a.inspector1 || "",
+            inspDate:
+              a[F.inspectingDate] ||
+              a.inspecting_date ||
+              a.inspection_from_data ||
+              null,
+            description: a[F.description] || a.case_description || "",
+            actionTaken: a[F.actionTaken] || a.action_taken || "",
+            committeeAction: a[F.committeeAction] || a.committee_action || "",
+            committeeActionsAppeal: a.committee_actions_appeal || "",
+            fieldSuggestedActions:
+              a[F.field_suggested_actions] || a.field_suggested_actions || "",
+            fineAmt:
+              a[F.fine_amount] || a.fine_amount || a.fined_amount || null,
+            acts: normActs(a[F.committeeAction] || a.committee_action || ""),
+            appealActs: normActs(a.committee_actions_appeal || ""),
             geometry: f.geometry,
+            hasAppeal: true,
           };
         });
         this.renderAppealsTable();
@@ -1113,42 +1129,47 @@ require([
       const tbody = document.getElementById("appeals-tbody");
       if (!tbody) return;
       if (!S.appeals.length) {
-        tbody.innerHTML = `<tr><td colspan="6" style="padding:16px;text-align:center;font-size:12px;color:var(--text-muted)">No appeals found.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" style="padding:16px;text-align:center;font-size:12px;color:var(--text-muted)">No appealed cases found.</td></tr>`;
         return;
       }
-      const validityPill = (v) => {
-        const vl = String(v || "").toLowerCase();
-        if (vl === "valid") return `<span class="pill pill-success">Valid</span>`;
-        if (vl === "invalid") return `<span class="pill pill-danger">Invalid</span>`;
-        return `<span class="pill pill-muted">${esc(v || "Pending")}</span>`;
-      };
       tbody.innerHTML = S.appeals
-        .map(
-          (ap) => `
-        <tr data-appeal-id="${esc(ap.objectid)}">
-          <td><span class="case-id-link" onclick="APP.viewAppeal(${ap.objectid})">${esc(ap.caseId || ap.objectid)}</span></td>
-          <td>${esc(ap.upi)}</td>
-          <td>${esc(ap.name)}</td>
-          <td>${esc(ap.complainIssue)}</td>
-          <td>${validityPill(ap.complainValidity)}</td>
-          <td>
-            <button class="btn btn-ghost btn-sm" onclick="APP.viewAppeal(${ap.objectid})">
-              <span class="icon icon-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>
-            </button>
-          </td>
-        </tr>
-      `
-        )
+        .map((c) => {
+          const statusClass =
+            c.verNorm === "verified"
+              ? "case-status-verified"
+              : c.verNorm === "under_review"
+                ? "case-status-review"
+                : "case-status-unverified";
+          const statusLabel =
+            c.verNorm === "verified"
+              ? "Verified"
+              : c.verNorm === "under_review"
+                ? "Under Review"
+                : "Unverified";
+          return `<tr id="appeal-row-${esc(c.id)}" class="${c.id === S.selectedAppealId ? "case-row-selected" : ""}">
+                    <td class="mono">${esc(c.caseId || "—")}</td>
+                    <td class="mono">${esc(c.upi || "—")}</td>
+                    <td>${esc(c.vsLabel || "—")}</td>
+                    <td>
+                        <span class="case-status-badge ${statusClass}">${statusLabel}</span>
+                    </td>
+                    <td>
+                        <button type="button" class="view-details-btn" onclick="APP.viewAppeal('${esc(c.id)}')" title="View details"><span class="icon icon-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></span></button>
+                    </td>
+                </tr>`;
+        })
         .join("");
     },
 
     switchTableTab(tab) {
       S.currentTab = tab;
       const casesContainer = document.getElementById("cases-table-container");
-      const appealsContainer = document.getElementById("appeals-table-container");
+      const appealsContainer = document.getElementById(
+        "appeals-table-container",
+      );
       const tabCases = document.getElementById("tab-cases");
       const tabAppeals = document.getElementById("tab-appeals");
-      
+
       if (tab === "cases") {
         if (casesContainer) casesContainer.style.display = "block";
         if (appealsContainer) appealsContainer.style.display = "none";
@@ -1179,52 +1200,95 @@ require([
       }
     },
 
-    viewAppeal(objectid) {
-      const ap = S.appeals.find((a) => a.objectid === objectid);
-      if (!ap) return;
-      S.selectedAppealId = objectid;
+    viewAppeal(id) {
+      const c = S.appeals.find((a) => a.id === id);
+      if (!c) return;
+      S.selectedAppealId = id;
+      this.renderAppealsTable();
+      const vc =
+        {
+          verified: "pill-verified",
+          not_verified: "pill-notverified",
+          under_review: "pill-underreview",
+        }[c.verNorm] || "";
+      const vl =
+        {
+          verified: "Verified",
+          not_verified: "Unverified",
+          under_review: "Under Review",
+        }[c.verNorm] || "—";
+      const ap = c.acts.length
+        ? c.acts
+            .map(
+              (a) =>
+                `<span class="pill ${pillClass(a)}" style="margin:2px">${esc(a)}</span>`,
+            )
+            .join("")
+        : '<span style="color:var(--text-muted)">None recorded</span>';
+      const location =
+        [c.sector, c.cell, c.village].filter(Boolean).join(" • ") || "—";
       const body = document.getElementById("appeal-view-body");
       if (!body) return;
-      const formatDate = (ts) => {
-        if (!ts) return "—";
-        const d = new Date(ts);
-        return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-      };
-      const validityPill = (v) => {
-        const vl = String(v || "").toLowerCase();
-        if (vl === "valid") return `<span class="pill pill-success">Valid</span>`;
-        if (vl === "invalid") return `<span class="pill pill-danger">Invalid</span>`;
-        return `<span class="pill pill-muted">${esc(v || "Pending")}</span>`;
-      };
       body.innerHTML = `
-        <div class="detail-grid">
-          <div class="detail-row"><div class="detail-label">Case ID</div><div class="detail-desc">${esc(ap.caseId || ap.objectid)}</div></div>
-          <div class="detail-row"><div class="detail-label">UPI</div><div class="detail-desc">${esc(ap.upi || "—")}</div></div>
-          <div class="detail-row"><div class="detail-label">Appellant Name</div><div class="detail-desc">${esc(ap.name || "—")}</div></div>
-          <div class="detail-row"><div class="detail-label">Phone</div><div class="detail-desc">${esc(ap.phone || "—")}</div></div>
-          <div class="detail-row"><div class="detail-label">Email</div><div class="detail-desc">${esc(ap.email || "—")}</div></div>
-          <div class="detail-full"><div class="detail-label">Location</div><div class="detail-desc">${esc(ap.province)} › ${esc(ap.district)} › ${esc(ap.sector)} › ${esc(ap.cell)} › ${esc(ap.village)}</div></div>
-          <div class="detail-full"><div class="detail-label">Complaint Issue</div><div class="detail-desc">${esc(ap.complainIssue || "—")}</div></div>
-          <div class="detail-full"><div class="detail-label">Complaint Description</div><div class="detail-desc">${esc(ap.complainDescription || "—")}</div></div>
-          <div class="detail-row"><div class="detail-label">Validity</div><div class="detail-desc">${validityPill(ap.complainValidity)}</div></div>
-          <div class="detail-row"><div class="detail-label">Submitted</div><div class="detail-desc">${formatDate(ap.createdDate)}</div></div>
-        </div>
-      `;
+                <div class="case-detail-header">
+                    <div class="case-detail-main">
+                        <div class="case-detail-id">${esc(c.caseId || "—")}</div>
+                        <div class="case-detail-sub">
+                            <span>${esc(c.upi || "No UPI")}</span>
+                            <span>• ${esc(location)}</span>
+                        </div>
+                    </div>
+                    <div class="case-detail-status">
+                        <span class="pill ${vc}">${vl}</span>
+                        <span class="pill pill-warning" style="margin-left:4px">Appeal</span>
+                    </div>
+                </div>
+                <div class="detail-grid">
+                    <div class="detail-row">
+                        <div class="detail-label">Visit Status</div>
+                        <div class="detail-desc">${esc(c.vsLabel || "—")}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">Data Source</div>
+                        <div class="detail-desc">${esc(c.srcLabel || "—")}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">Inspector</div>
+                        <div class="detail-desc">${esc(c.inspector || "—")}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">Inspection Date</div>
+                        <div class="detail-desc">${c.inspDate ? new Date(c.inspDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—"}</div>
+                    </div>
+                    <div class="detail-full">
+                        <div class="detail-label">Description</div>
+                        <div class="detail-desc">${esc(c.description || "—")}</div>
+                    </div>
+                    <div class="detail-full">
+                        <div class="detail-label">Action Taken</div>
+                        <div class="detail-desc">${esc(c.actionTaken || "—")}</div>
+                    </div>
+                    <div class="detail-full">
+                        <div class="detail-label">Committee Actions</div>
+                        <div class="detail-desc" style="display:flex;flex-wrap:wrap;gap:4px">${ap}</div>
+                    </div>
+                </div>`;
       document.getElementById("appeal-cmt-btn").onclick = () => {
         this.closeModal("appeal-view-modal");
-        this.openAppealCmt(objectid);
+        this.openAppealCmt(id);
       };
       document.getElementById("appeal-view-modal").classList.add("open");
     },
 
-    openAppealCmt(objectid) {
-      const ap = S.appeals.find((a) => a.objectid === objectid);
-      if (!ap) return;
-      S.selectedAppealId = objectid;
+    openAppealCmt(id) {
+      const c = S.appeals.find((a) => a.id === id);
+      if (!c) return;
+      S.selectedAppealId = id;
       S.appealDec = null;
+      const suggested = c.fieldSuggestedActions || "";
       document.getElementById("appeal-cmt-info").innerHTML =
-        `<div class="detail-label" style="margin-bottom:4px">Appeal from: ${esc(ap.name)}</div>` +
-        `<div class="detail-desc">${esc(ap.complainIssue || "No issue recorded.")}</div>`;
+        `<div class="detail-label" style="margin-bottom:4px">Suggested actions from inspection</div>` +
+        `<div class="detail-desc">${esc(suggested || "No suggested actions recorded.")}</div>`;
       ["c", "nc", "rv"].forEach((d) => {
         document.getElementById("appeal-dlbl-" + d).className = "dec-label";
         document.getElementById("appeal-dradio-" + d).className = "dec-radio";
@@ -1274,13 +1338,13 @@ require([
     },
 
     async saveAppealDecision() {
-      const objectid = S.selectedAppealId;
-      const ap = S.appeals.find((a) => a.objectid === objectid);
-      if (!ap) {
+      const id = S.selectedAppealId;
+      const c = S.appeals.find((a) => a.id === id);
+      if (!c) {
         this.toast("Appeal not found", "error");
         return;
       }
-      const caseId = ap.caseId;
+      const caseId = c.caseId;
       if (!caseId) {
         this.toast("Case ID is missing for this appeal", "error");
         return;
@@ -1308,7 +1372,7 @@ require([
                 demo: "Demolish",
                 new: "New Permit",
                 renew: "Renew Permit",
-              })[a]
+              })[a],
           );
         if (!acts.length) {
           this.toast("Select at least one enforcement action", "error");
@@ -1389,7 +1453,9 @@ require([
         });
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.message || "Failed with status " + res.status);
+          throw new Error(
+            errData.message || "Failed with status " + res.status,
+          );
         }
         this.closeModal("appeal-cmt-modal");
         this.toast("Appeal decision saved successfully", "success");

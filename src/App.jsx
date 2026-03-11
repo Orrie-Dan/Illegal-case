@@ -363,7 +363,7 @@ function App() {
                         <path d="M9 15l3-3 3 3" />
                       </svg>
                     </span>
-                    Appeals
+                    Appealed Cases
                     <span id="appeals-count-badge" className="panel-badge" style={{ marginLeft: '4px', display: 'none' }}>0</span>
                   </button>
                 </div>
@@ -423,16 +423,15 @@ function App() {
                   <tr>
                     <th>Case ID</th>
                     <th>UPI</th>
-                    <th>Appellant</th>
-                    <th>Issue</th>
-                    <th>Validity</th>
+                    <th>Visit Status</th>
+                    <th>Verification</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody id="appeals-tbody">
                   <tr>
                     <td
-                      colSpan="6"
+                      colSpan="5"
                       style={{ padding: '16px', textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }}
                     >
                       Loading appeals…

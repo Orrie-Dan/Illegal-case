@@ -3,7 +3,7 @@ const CFG = {
   WEBMAP: "71f7636be6f14ed287abd35e857569ca",
   LAYER:
     "https://gh.space.gov.rw/server/rest/services/case_inspection/FeatureServer/3",
-  API_BASE_URL: "http://172.20.10.3:8000",
+  API_BASE_URL: "http://192.168.1.116:8000",
 };
 const F = {
   caseid: "caseid",
