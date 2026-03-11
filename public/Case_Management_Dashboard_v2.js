@@ -51,7 +51,7 @@ function animVal(id,target) {
 }
 
 require([
-    "esri/Map",
+    "esri/WebMap",
     "esri/views/MapView",
     "esri/layers/FeatureLayer",
     "esri/layers/GraphicsLayer",
@@ -62,13 +62,26 @@ require([
     "esri/widgets/Expand",
     "esri/widgets/LayerList"
 ],
-function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGallery,Expand,LayerList) {
-    // Use Map + public basemap instead of portal WebMap so the app works on Vercel (no portal credentials)
-    const map = new Map({ basemap: "streets-navigation-vector" });
-    const gl = new GraphicsLayer({ listMode:'hide' }); S.gl=gl; map.add(gl);
-    const fl = new FeatureLayer({ url: CFG.LAYER, outFields: ['*'] });
-    map.add(fl);
-    const view = new MapView({ container:'mapView', map, ui:{components:['zoom']}, popup:{autoOpenEnabled:false} }); S.view=view;
+function(WebMap,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGallery,Expand,LayerList) {
+    // Use the official Illegal Case Management web map from the Bugesera geoportal
+    const webmap = new WebMap({
+        portalItem: {
+            id: CFG.WEBMAP,
+            portal: { url: CFG.PORTAL }
+        }
+    });
+
+    const gl = new GraphicsLayer({ listMode:'hide' }); S.gl=gl; webmap.add(gl);
+    let fl = null;
+
+    const view = new MapView({
+        container:'mapView',
+        map: webmap,
+        ui:{components:['zoom']},
+        popup:{autoOpenEnabled:false}
+    });
+    S.view=view;
+
     view.when().then(()=>{
         const searchWidget=new Search({ view });
         view.ui.add(searchWidget,"top-right");
@@ -78,6 +91,13 @@ function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGall
         const layerList=new LayerList({ view });
         const layerExpand=new Expand({ view, content:layerList, group:"top-right", expanded:false });
         view.ui.add(layerExpand,"top-right");
+
+        // Try to use the case_inspection layer from the web map; fall back to direct URL if not present
+        fl = webmap.layers.find(layer => layer.url && layer.url.indexOf('/case_inspection/FeatureServer/3') !== -1) || null;
+        if(!fl){
+            fl = new FeatureLayer({ url: CFG.LAYER, outFields: ['*'] });
+            webmap.add(fl);
+        }
         return fl.load();
     }).then(()=>{
         fl.fields.forEach(f=>{
@@ -86,6 +106,8 @@ function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGall
         });
         if(!Object.keys(S.statMap).length) S.statMap={0:'Not Visited',1:'Visited Legal',2:'Visited Illegal'};
         if(!Object.keys(S.srcMap).length) S.srcMap={'1':'Citizen','2':'Satellite','3':'Field Visit'};
+        // Hide the original feature layer symbology from the WebMap so only our red graphics are visible.
+        fl.visible = false;
         const srcSel=document.getElementById('filter-source');
         Object.entries(S.srcMap).forEach(([code,label])=>{ const o=document.createElement('option'); o.value=String(code); o.textContent=label; srcSel.appendChild(o); });
         const q=new Query(); q.where='1=1'; q.outFields=['*']; q.returnGeometry=true; q.num=2000;
@@ -229,24 +251,43 @@ function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGall
         renderMap() {
             if(!S.gl) return; S.gl.removeAll();
             let plotted=0;
-            S.filtered.forEach(c=>{ if(!c.geo) return; const isSel=c.id===S.selectedId; S.gl.add(new Graphic({ geometry:c.geo, symbol:{type:'simple-marker',size:isSel?12:9,color:isSel?'#4f46e5':'#ef4444',outline:{width:isSel?2:1.5,color:isSel?'#312e81':'rgba(255,255,255,0.8)'}}, attributes:{cid:c.id} })); plotted++; });
+            S.filtered.forEach(c=>{ 
+                if(!c.geo) return; 
+                const isSel=c.id===S.selectedId; 
+                S.gl.add(new Graphic({ 
+                    geometry:c.geo, 
+                    symbol:{
+                        type:'simple-marker',
+                        size:isSel?12:9,
+                        color:'#ef4444',
+                        outline:{width:isSel?2:1.5,color:'rgba(255,255,255,0.8)'}
+                    }, 
+                    attributes:{cid:c.id} 
+                })); 
+                plotted++; 
+            });
             const mb=document.getElementById('map-count');
             if(plotted>0){mb.textContent=plotted+' cases';mb.style.display='block';}else mb.style.display='none';
             document.getElementById('legend-sel').style.display=S.selectedId?'flex':'none';
         },
         renderList() {
             const tbody=document.getElementById('cases-tbody');
-            const total=S.filtered.length;
+            const base=S.filtered;
+            const visible=S.selectedId ? base.filter(c=>c.id===S.selectedId) : base;
+            const total=visible.length;
             const badge=document.getElementById('table-count');
             if(badge) badge.textContent=total;
             if(!tbody){ return; }
             if(!total){
-                tbody.innerHTML='<tr><td colspan="5" style="padding:16px;text-align:center;font-size:12px;color:var(--text-muted)">No cases match current filters</td></tr>';
+                const msg = S.selectedId
+                    ? 'Selected case is not in the current filters'
+                    : 'No cases match current filters';
+                tbody.innerHTML=`<tr><td colspan="5" style="padding:16px;text-align:center;font-size:12px;color:var(--text-muted)">${msg}</td></tr>`;
                 return;
             }
             const sortBy=(document.getElementById('table-sort-by')||{}).value||'date_asc';
             const verOrder={verified:0,under_review:1,not_verified:2};
-            const sorted=[...S.filtered].sort((a,b)=>{
+            const sorted=[...visible].sort((a,b)=>{
                 const da=a.inspDate?new Date(a.inspDate).getTime():Infinity;
                 const db=b.inspDate?new Date(b.inspDate).getTime():Infinity;
                 const idA=String(a.id||'').toLowerCase();
@@ -277,7 +318,7 @@ function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGall
             tbody.innerHTML=rows.map(c=>{
                 const statusClass=c.verNorm==='verified'?'case-status-verified':c.verNorm==='under_review'?'case-status-review':'case-status-unverified';
                 const statusLabel=c.verNorm==='verified'?'Verified':c.verNorm==='under_review'?'Under Review':'Unverified';
-                return `<tr id="row-${esc(c.id)}" class="${c.id===S.selectedId?'case-row-selected':''}">
+                return `<tr id="row-${esc(c.id)}" class="${c.id===S.selectedId?'case-row-selected':''}" onclick="APP.selectCase('${esc(c.id)}')">
                     <td class="mono">${esc(c.id||'—')}</td>
                     <td class="mono">${esc(c.upi||'—')}</td>
                     <td>${esc(c.vsLabel||'—')}</td>
@@ -285,7 +326,7 @@ function(Map,MapView,FeatureLayer,GraphicsLayer,Graphic,Query,Search,BasemapGall
                         <span class="case-status-badge ${statusClass}">${statusLabel}</span>
                     </td>
                     <td>
-                        <button type="button" class="view-details-btn" onclick="APP.openView('${esc(c.id)}')" title="View details"><span class="icon icon-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></span></button>
+                        <button type="button" class="view-details-btn" onclick="event.stopPropagation(); APP.openView('${esc(c.id)}')" title="View details"><span class="icon icon-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></span></button>
                     </td>
                 </tr>`;
             }).join('');
