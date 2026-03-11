@@ -303,14 +303,64 @@ function App() {
           {/* RIGHT: CASES TABLE */}
           <div className="panel">
             <div className="panel-head">
-              <div className="panel-title">
-                <span className="icon icon-sm" style={{ color: 'var(--accent)' }}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="3" y="4" width="18" height="16" rx="2" />
-                    <path d="M9 8h10M9 12h10M9 16h6M5 8h.01M5 12h.01M5 16h.01" />
-                  </svg>
-                </span>
-                Cases Register — Non-Compliant
+              <div className="panel-title" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div className="table-tabs" style={{ display: 'flex', gap: '4px' }}>
+                  <button
+                    id="tab-cases"
+                    className="tab-btn active"
+                    onClick={() => window.APP && window.APP.switchTableTab('cases')}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      background: 'var(--accent)',
+                      color: '#fff',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <span className="icon icon-sm">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <rect x="3" y="4" width="18" height="16" rx="2" />
+                        <path d="M9 8h10M9 12h10M9 16h6M5 8h.01M5 12h.01M5 16h.01" />
+                      </svg>
+                    </span>
+                    Cases
+                  </button>
+                  <button
+                    id="tab-appeals"
+                    className="tab-btn"
+                    onClick={() => window.APP && window.APP.switchTableTab('appeals')}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-surface)',
+                      color: 'var(--text-muted)',
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <span className="icon icon-sm">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                        <path d="M12 18v-6" />
+                        <path d="M9 15l3-3 3 3" />
+                      </svg>
+                    </span>
+                    Appealed Cases
+                    <span id="appeals-count-badge" className="panel-badge" style={{ marginLeft: '4px', display: 'none' }}>0</span>
+                  </button>
+                </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                 <label htmlFor="table-sort-by" className="filter-label" style={{ marginRight: 4 }}>
@@ -336,7 +386,8 @@ function App() {
                 </span>
               </div>
             </div>
-            <div className="cases-table-wrap">
+            {/* Cases Table */}
+            <div id="cases-table-container" className="cases-table-wrap">
               <table className="cases-table">
                 <thead>
                   <tr>
@@ -354,6 +405,30 @@ function App() {
                       style={{ padding: '16px', textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }}
                     >
                       Loading data…
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            {/* Appeals Table */}
+            <div id="appeals-table-container" className="cases-table-wrap" style={{ display: 'none' }}>
+              <table className="cases-table">
+                <thead>
+                  <tr>
+                    <th>Case ID</th>
+                    <th>UPI</th>
+                    <th>Visit Status</th>
+                    <th>Verification</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="appeals-tbody">
+                  <tr>
+                    <td
+                      colSpan="5"
+                      style={{ padding: '16px', textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }}
+                    >
+                      Loading appeals…
                     </td>
                   </tr>
                 </tbody>
@@ -662,18 +737,17 @@ function App() {
               </div>
             </div>
 
-            <div className="ag" id="ver-group">
-              <label>Verification Status</label>
+            <div className="ag" id="ver-group" style={{ display: 'block' }}>
+              <label>Verification Status <span style={{ color: '#ef4444' }}>*</span></label>
               <select id="cmt-ver">
                 <option value="">— Select Status —</option>
                 <option value="verified">Verified</option>
-                <option value="not_verified">Not Verified</option>
                 <option value="under_review">Under Review</option>
               </select>
             </div>
-            <div className="ag">
-              <label>Notes</label>
-              <input type="text" id="cmt-notes" placeholder="Optional committee notes…" />
+            <div className="ag" id="notes-group" style={{ display: 'none' }}>
+              <label>Notes <span style={{ color: '#ef4444' }}>*</span></label>
+              <input type="text" id="cmt-notes" placeholder="Required: explain why case needs review…" />
             </div>
           </div>
           <div className="modal-footer">
@@ -687,6 +761,193 @@ function App() {
                 </svg>
               </span>{' '}
               Submit Committee Decision
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* APPEAL VIEW MODAL */}
+      <div className="modal-overlay" id="appeal-view-modal">
+        <div className="modal">
+          <div className="modal-head">
+            <div className="modal-title">
+              <span className="icon" style={{ color: '#f59e0b' }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <path d="M12 18v-6" />
+                  <path d="M9 15l3-3 3 3" />
+                </svg>
+              </span>
+              Appeal Details
+            </div>
+            <button className="modal-close" onClick={() => handleCloseModal('appeal-view-modal')}>
+              ✕
+            </button>
+          </div>
+          <div className="modal-body" id="appeal-view-body"></div>
+          <div className="modal-footer">
+            <button className="btn btn-ghost" onClick={() => handleCloseModal('appeal-view-modal')}>
+              Close
+            </button>
+            <button className="btn btn-committee" id="appeal-cmt-btn">
+              <span className="icon icon-sm">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                </svg>
+              </span>{' '}
+              Committee Decision
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* APPEAL COMMITTEE MODAL */}
+      <div className="modal-overlay" id="appeal-cmt-modal">
+        <div className="modal modal-sm">
+          <div className="modal-head">
+            <div className="modal-title">
+              <span className="icon" style={{ color: '#f59e0b' }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                </svg>
+              </span>
+              Appeal Committee Decision
+            </div>
+            <button className="modal-close" onClick={() => handleCloseModal('appeal-cmt-modal')}>
+              ✕
+            </button>
+          </div>
+          <div className="modal-body">
+            <div className="case-info-card" id="appeal-cmt-info"></div>
+
+            {/* DECISION RADIOS */}
+            <div className="dec-radios">
+              <div className="dec-label" id="appeal-dlbl-c" onClick={() => window.APP && window.APP.pickAppealDec('c')}>
+                <div className="dec-icon">
+                  <span className="icon icon-sm" style={{ color: '#22c55e' }}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                      <polyline points="22 4 12 14.01 9 11.01" />
+                    </svg>
+                  </span>
+                </div>
+                <span>Appeal Valid — Case Closed</span>
+                <div className="dec-radio" id="appeal-dradio-c"></div>
+              </div>
+              <div className="dec-label" id="appeal-dlbl-nc" onClick={() => window.APP && window.APP.pickAppealDec('nc')}>
+                <div className="dec-icon">
+                  <span className="icon icon-sm" style={{ color: '#ef4444' }}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="15" y1="9" x2="9" y2="15" />
+                      <line x1="9" y1="9" x2="15" y2="15" />
+                    </svg>
+                  </span>
+                </div>
+                <span>Appeal Invalid — Action Required</span>
+                <div className="dec-radio" id="appeal-dradio-nc"></div>
+              </div>
+              <div className="dec-label" id="appeal-dlbl-rv" onClick={() => window.APP && window.APP.pickAppealDec('rv')}>
+                <div className="dec-icon">
+                  <span className="icon icon-sm" style={{ color: '#f59e0b' }}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <polyline points="23 4 23 10 17 10" />
+                      <polyline points="1 20 1 14 7 14" />
+                      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                    </svg>
+                  </span>
+                </div>
+                <span>Review — Send Back for Re-inspection</span>
+                <div className="dec-radio" id="appeal-dradio-rv"></div>
+              </div>
+            </div>
+
+            {/* Action panel (for appeal invalid) */}
+            <div id="appeal-action-panel" style={{ display: 'none' }}>
+              <div className="ag">
+                <label>
+                  Enforcement Actions{' '}
+                  <span style={{ fontWeight: 400, textTransform: 'none', fontSize: '10px', color: 'var(--text-muted)' }}>
+                    (select all that apply)
+                  </span>
+                </label>
+                <div className="action-checks">
+                  <div className="ach" id="appeal-ach-fine" onClick={(e) => window.APP && window.APP.toggleAppealAct('fine', e.currentTarget)}>
+                    <input type="checkbox" id="appeal-chk-fine" onChange={(e) => e.stopPropagation()} />
+                    <span className="icon icon-sm" style={{ color: '#3b82f6' }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <line x1="12" y1="2" x2="12" y2="22" />
+                        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                      </svg>
+                    </span>
+                    Fine
+                  </div>
+                  <div className="ach" id="appeal-ach-demo" onClick={(e) => window.APP && window.APP.toggleAppealAct('demo', e.currentTarget)}>
+                    <input type="checkbox" id="appeal-chk-demo" onChange={(e) => e.stopPropagation()} />
+                    <span className="icon icon-sm" style={{ color: '#ef4444' }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M3 6h18" />
+                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                      </svg>
+                    </span>
+                    Demolish
+                  </div>
+                  <div className="ach" id="appeal-ach-new" onClick={(e) => window.APP && window.APP.toggleAppealAct('new', e.currentTarget)}>
+                    <input type="checkbox" id="appeal-chk-new" onChange={(e) => e.stopPropagation()} />
+                    <span className="icon icon-sm" style={{ color: '#f59e0b' }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                        <line x1="12" y1="18" x2="12" y2="12" />
+                      </svg>
+                    </span>
+                    New Permit
+                  </div>
+                  <div className="ach" id="appeal-ach-renew" onClick={(e) => window.APP && window.APP.toggleAppealAct('renew', e.currentTarget)}>
+                    <input type="checkbox" id="appeal-chk-renew" onChange={(e) => e.stopPropagation()} />
+                    <span className="icon icon-sm" style={{ color: '#22c55e' }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                        <path d="M3 3v5h5" />
+                      </svg>
+                    </span>
+                    Renew Permit
+                  </div>
+                </div>
+              </div>
+              <div id="appeal-fine-amount-wrap" className="ag" style={{ display: 'none' }}>
+                <label>
+                  Fine Amount <span className="rwf-badge">RWF</span>
+                </label>
+                <input type="number" id="appeal-fine-amount" placeholder="Enter fine amount in RWF" min="0" />
+              </div>
+            </div>
+
+            <div className="ag" id="appeal-ver-group" style={{ display: 'block' }}>
+              <label>Verification Status <span style={{ color: '#ef4444' }}>*</span></label>
+              <select id="appeal-cmt-ver">
+                <option value="">— Select Status —</option>
+                <option value="verified">Verified</option>
+                <option value="under_review">Under Review</option>
+              </select>
+            </div>
+            <div className="ag" id="appeal-notes-group" style={{ display: 'none' }}>
+              <label>Notes <span style={{ color: '#ef4444' }}>*</span></label>
+              <input type="text" id="appeal-cmt-notes" placeholder="Required: explain why appeal needs review…" />
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-ghost" onClick={() => handleCloseModal('appeal-cmt-modal')}>
+              Cancel
+            </button>
+            <button id="save-appeal-btn" type="button" className="btn btn-primary" onClick={() => window.APP && window.APP.saveAppealDecision()}>
+              <span className="icon icon-sm">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </span>{' '}
+              Submit Appeal Decision
             </button>
           </div>
         </div>
