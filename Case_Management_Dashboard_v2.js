@@ -165,29 +165,35 @@ function animVal(id, target) {
   requestAnimationFrame(step);
 }
 
-require([
-  "esri/Map",
-  "esri/views/MapView",
-  "esri/layers/FeatureLayer",
-  "esri/layers/GraphicsLayer",
-  "esri/Graphic",
-  "esri/rest/support/Query",
-  "esri/widgets/Search",
-  "esri/widgets/BasemapGallery",
-  "esri/widgets/Expand",
-  "esri/widgets/LayerList",
-], function (
-  Map,
-  MapView,
-  FeatureLayer,
-  GraphicsLayer,
-  Graphic,
-  Query,
-  Search,
-  BasemapGallery,
-  Expand,
-  LayerList,
-) {
+require(
+  [
+    "esri/Map",
+    "esri/WebMap",
+    "esri/views/MapView",
+    "esri/layers/FeatureLayer",
+    "esri/layers/GraphicsLayer",
+    "esri/Graphic",
+    "esri/rest/support/Query",
+    "esri/widgets/Search",
+    "esri/widgets/BasemapGallery",
+    "esri/widgets/Expand",
+    "esri/widgets/LayerList",
+    "esri/config",
+  ],
+  function (
+    Map,
+    WebMap,
+    MapView,
+    FeatureLayer,
+    GraphicsLayer,
+    Graphic,
+    Query,
+    Search,
+    BasemapGallery,
+    Expand,
+    LayerList,
+    esriConfig,
+  ) {
   // Wait for React to render DOM (fixes race on Vercel where callback ran before mount)
   function whenElement(id, timeoutMs) {
     timeoutMs = timeoutMs || 15000;
@@ -207,47 +213,119 @@ require([
       }, 50);
     });
   }
-  // Use Map + public basemap instead of portal WebMap so the app works on Vercel (no portal credentials)
-  const map = new Map({ basemap: "streets-navigation-vector" });
-  const gl = new GraphicsLayer({ listMode: "hide" });
-  S.gl = gl;
-  map.add(gl);
-  const fl = new FeatureLayer({ url: CFG.LAYER, outFields: ["*"] });
-  map.add(fl);
-  const view = new MapView({
-    container: "mapView",
-    map,
-    ui: { components: ["zoom"] },
-    popup: { autoOpenEnabled: false },
-  });
-  S.view = view;
-  view
-    .when()
-    .then(() => {
-      const searchWidget = new Search({ view });
+
+  // Wait for React's map view to be set (React creates it in useEffect; avoid race)
+  function whenReactView(timeoutMs) {
+    timeoutMs = timeoutMs || 8000;
+    return new Promise(function (resolve) {
+      if (window.__ICM_VIEW__ && window.__ICM_VIEW__.map) return resolve(window.__ICM_VIEW__);
+      var deadline = Date.now() + timeoutMs;
+      var t = setInterval(function () {
+        if (window.__ICM_VIEW__ && window.__ICM_VIEW__.map) {
+          clearInterval(t);
+          resolve(window.__ICM_VIEW__);
+          return;
+        }
+        if (Date.now() > deadline) {
+          clearInterval(t);
+          resolve(null);
+        }
+      }, 80);
+    });
+  }
+
+  // Wait for map container, then for React-created view (App.jsx creates map with satellite + zoom)
+  whenElement("mapView", 15000)
+    .then(function () { return whenReactView(10000); })
+    .then(function (existingView) {
+      // Prefer view created by App.jsx (satellite basemap, zoomed to Bugesera)
+      if (existingView && existingView.map) {
+        S.view = existingView;
+        esriConfig.portalUrl = CFG.PORTAL;
+
+        if (window.__ICM_GL__) {
+          S.gl = window.__ICM_GL__;
+        } else {
+          var gl = new GraphicsLayer({ listMode: "hide" });
+          S.gl = gl;
+          existingView.map.add(gl);
+        }
+
+        if (window.__ICM_FL__) {
+          S.appealsFL = window.__ICM_FL__;
+        } else {
+          var fl =
+            existingView.map.allLayers &&
+            existingView.map.allLayers.find(function (l) {
+              return (
+                l.type === "feature" &&
+                l.url &&
+                l.url.toLowerCase().indexOf("case_inspection") > -1
+              );
+            });
+          if (!fl) {
+            fl = new FeatureLayer({ url: CFG.LAYER, outFields: ["*"] });
+            existingView.map.add(fl);
+          }
+          S.appealsFL = fl;
+        }
+
+        return existingView.when();
+      }
+
+      // Fallback: when not running in React (e.g. static HTML), create map here
+      esriConfig.portalUrl = CFG.PORTAL;
+      var map = new Map({ basemap: "satellite" });
+      var gl2 = new GraphicsLayer({ listMode: "hide" });
+      S.gl = gl2;
+      map.add(gl2);
+      var fl2 = new FeatureLayer({ url: CFG.LAYER, outFields: ["*"] });
+      map.add(fl2);
+      S.appealsFL = fl2;
+      var view2 = new MapView({
+        container: "mapView",
+        map: map,
+        center: [30.0619, -1.9441],
+        zoom: 11,
+        ui: { components: ["zoom"] },
+        popup: { autoOpenEnabled: false },
+      });
+      S.view = view2;
+      window.__ICM_VIEW__ = view2;
+      return view2.when();
+    })
+    .then(function () {
+      var view = S.view;
+      if (!view) return;
+
+      // Basemap and zoom are set by App.jsx when React creates the map; no override here
+
+      var searchWidget = new Search({ view: view });
       view.ui.add(searchWidget, "top-right");
-      const basemapGallery = new BasemapGallery({ view });
-      const basemapExpand = new Expand({
-        view,
+      var basemapGallery = new BasemapGallery({ view: view });
+      var basemapExpand = new Expand({
+        view: view,
         content: basemapGallery,
         group: "top-right",
         expanded: false,
       });
       view.ui.add(basemapExpand, "top-right");
-      const layerList = new LayerList({ view });
-      const layerExpand = new Expand({
-        view,
+      var layerList = new LayerList({ view: view });
+      var layerExpand = new Expand({
+        view: view,
         content: layerList,
         group: "top-right",
         expanded: false,
       });
       view.ui.add(layerExpand, "top-right");
-      return fl.load();
+      return S.appealsFL ? S.appealsFL.load() : Promise.resolve();
     })
     .then(function () {
       return whenElement("filter-source");
     })
-    .then(() => {
+    .then(function () {
+      var fl = S.appealsFL;
+      if (!fl || !fl.fields) return Promise.resolve([[], { features: [] }]);
       fl.fields.forEach((f) => {
         if (f.name === F.source && f.domain?.codedValues)
           f.domain.codedValues.forEach((cv) => {
@@ -446,13 +524,6 @@ require([
         window.APP.toast("Error loading data", "error");
     });
 
-  view.on("click", (event) => {
-    view.hitTest(event, { include: gl }).then((r) => {
-      const hit = r.results.find((r) => r.graphic?.attributes?.cid);
-      if (hit) APP.selectCase(hit.graphic.attributes.cid);
-    });
-  });
-
   window.APP = {
     applyFilters() {
       const search = document
@@ -592,37 +663,17 @@ require([
       animVal("kpi-renewed", rp);
     },
     renderMap() {
-      if (!S.gl) return;
-      S.gl.removeAll();
-      let plotted = 0;
-      S.filtered.forEach((c) => {
-        if (!c.geo) return;
-        const isSel = c.id === S.selectedId;
-        S.gl.add(
-          new Graphic({
-            geometry: c.geo,
-            symbol: {
-              type: "simple-marker",
-              size: isSel ? 12 : 9,
-              color: isSel ? "#4f46e5" : "#ef4444",
-              outline: {
-                width: isSel ? 2 : 1.5,
-                color: isSel ? "#312e81" : "rgba(255,255,255,0.8)",
-              },
-            },
-            attributes: { cid: c.id },
-          }),
-        );
-        plotted++;
-      });
+      // Map visualization is now handled by the embedded portal Map Viewer.
+      // We only keep the badge count in sync with the filtered cases.
       const mb = document.getElementById("map-count");
+      if (!mb) return;
+      const plotted = S.filtered.length;
       if (plotted > 0) {
         mb.textContent = plotted + " cases";
         mb.style.display = "block";
-      } else mb.style.display = "none";
-      document.getElementById("legend-sel").style.display = S.selectedId
-        ? "flex"
-        : "none";
+      } else {
+        mb.style.display = "none";
+      }
     },
     renderList() {
       const tbody = document.getElementById("cases-tbody");
@@ -1311,11 +1362,6 @@ require([
       document.getElementById("global-search").value = "";
       S.selectedId = null;
       this.applyFilters();
-      if (S.view)
-        S.view.goTo(
-          { center: [30.0619, -1.9441], zoom: 11 },
-          { duration: 600 },
-        );
     },
     toast(msg, type = "info") {
       const stack = document.getElementById("toast-stack"),

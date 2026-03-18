@@ -50,7 +50,82 @@ function App() {
   };
 
   useEffect(() => {
-    // React renders static structure; data wiring is handled by APP in Case_Management_Dashboard_v2.js
+    // Use the portal WebMap behind the Map Viewer URL:
+    // https://gh.space.gov.rw/portal/apps/mapviewer/index.html?webmap=71f7636be6f14ed287abd35e857569ca
+    const PORTAL_URL = 'https://gh.space.gov.rw/portal/';
+    const WEBMAP_ID = '71f7636be6f14ed287abd35e857569ca';
+
+    function waitForRequire(timeoutMs) {
+      timeoutMs = timeoutMs || 8000;
+      return new Promise((resolve) => {
+        if (typeof window.require === 'function') return resolve();
+        const deadline = Date.now() + timeoutMs;
+        const t = setInterval(() => {
+          if (typeof window.require === 'function') {
+            clearInterval(t);
+            resolve();
+            return;
+          }
+          if (Date.now() > deadline) {
+            clearInterval(t);
+            resolve();
+          }
+        }, 80);
+      });
+    }
+
+    let view;
+
+    waitForRequire(8000).then(() => {
+      if (!window.require) return;
+      window.require(
+        ['esri/WebMap', 'esri/views/MapView', 'esri/config'],
+        (WebMap, MapView, esriConfig) => {
+          esriConfig.portalUrl = PORTAL_URL;
+
+          const webmap = new WebMap({
+            portalItem: {
+              id: WEBMAP_ID,
+              portal: { url: PORTAL_URL },
+            },
+          });
+
+          view = new MapView({
+            container: 'mapView',
+            map: webmap,
+            ui: { components: ['zoom'] },
+            popup: { autoOpenEnabled: false },
+          });
+
+          // After the WebMap loads, switch basemap to imagery and zoom to Bugesera
+          view.when().then(() => {
+            try {
+              // Some portal webmaps have their own basemap; override to imagery here
+              if (view.map && view.map.basemap) {
+                view.map.basemap = 'satellite';
+              }
+            } catch (e) {
+              console.warn('Could not set imagery basemap on WebMap view:', e);
+            }
+            view.goTo(
+              { center: [30.0619, -1.9441], zoom: 11 },
+              { duration: 600 },
+            );
+          });
+
+          // Expose for the dashboard script to attach widgets/data
+          window.__ICM_VIEW__ = view;
+        }
+      );
+    });
+
+    return () => {
+      if (view) {
+        view.container = null;
+        view.destroy();
+      }
+      window.__ICM_VIEW__ = null;
+    };
   }, []);
 
   return (
@@ -210,66 +285,6 @@ function App() {
           <div className="kpi-val" id="kpi-under-review">--</div>
           <div className="kpi-sub">Cases pending committee decision</div>
           <div className="kpi-bar"></div>
-        </div>
-      </div>
-
-      {/* SECONDARY KPI ROW */}
-      <div className="kpi-row kpi-row-sub fade-in d2">
-        <div className="kpi">
-          <div className="kpi-top">
-            <div className="kpi-icon-wrap" style={{ background: '#EFF6FF', color: '#3B82F6' }}>
-              <span className="rwf-badge">RWF</span>
-            </div>
-            <span className="kpi-label">Fine</span>
-          </div>
-          <div className="kpi-val" id="kpi-fine">--</div>
-          <div className="kpi-sub">Cases with monetary penalty</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-top">
-            <div className="kpi-icon-wrap" style={{ background: '#FEE2E2', color: '#DC2626' }}>
-              <span className="icon icon-sm">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M3 6h18" />
-                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                </svg>
-              </span>
-            </div>
-            <span className="kpi-label">Demolished</span>
-          </div>
-          <div className="kpi-val" id="kpi-demolished">--</div>
-          <div className="kpi-sub">Cases required to be demolished</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-top">
-            <div className="kpi-icon-wrap" style={{ background: '#FEF3C7', color: '#F59E0B' }}>
-              <span className="icon icon-sm">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                  <line x1="12" y1="18" x2="12" y2="12" />
-                </svg>
-              </span>
-            </div>
-            <span className="kpi-label">New permit</span>
-          </div>
-          <div className="kpi-val" id="kpi-newpermit">--</div>
-          <div className="kpi-sub">Cases requiring new permit</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-top">
-            <div className="kpi-icon-wrap" style={{ background: '#DCFCE7', color: '#16A34A' }}>
-              <span className="icon icon-sm">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                  <path d="M3 3v5h5" />
-                </svg>
-              </span>
-            </div>
-            <span className="kpi-label">Renew permit</span>
-          </div>
-          <div className="kpi-val" id="kpi-renewed">--</div>
-          <div className="kpi-sub">Cases requiring permit renewal</div>
         </div>
       </div>
 
@@ -441,6 +456,66 @@ function App() {
               </table>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* SECONDARY KPI ROW */}
+      <div className="kpi-row kpi-row-sub fade-in d2">
+        <div className="kpi">
+          <div className="kpi-top">
+            <div className="kpi-icon-wrap" style={{ background: '#EFF6FF', color: '#3B82F6' }}>
+              <span className="rwf-badge">RWF</span>
+            </div>
+            <span className="kpi-label">Fine</span>
+          </div>
+          <div className="kpi-val" id="kpi-fine">--</div>
+          <div className="kpi-sub">Cases with monetary penalty</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-top">
+            <div className="kpi-icon-wrap" style={{ background: '#FEE2E2', color: '#DC2626' }}>
+              <span className="icon icon-sm">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M3 6h18" />
+                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                </svg>
+              </span>
+            </div>
+            <span className="kpi-label">Demolished</span>
+          </div>
+          <div className="kpi-val" id="kpi-demolished">--</div>
+          <div className="kpi-sub">Cases required to be demolished</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-top">
+            <div className="kpi-icon-wrap" style={{ background: '#FEF3C7', color: '#F59E0B' }}>
+              <span className="icon icon-sm">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="12" y1="18" x2="12" y2="12" />
+                </svg>
+              </span>
+            </div>
+            <span className="kpi-label">New permit</span>
+          </div>
+          <div className="kpi-val" id="kpi-newpermit">--</div>
+          <div className="kpi-sub">Cases requiring new permit</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-top">
+            <div className="kpi-icon-wrap" style={{ background: '#DCFCE7', color: '#16A34A' }}>
+              <span className="icon icon-sm">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                  <path d="M3 3v5h5" />
+                </svg>
+              </span>
+            </div>
+            <span className="kpi-label">Renew permit</span>
+          </div>
+          <div className="kpi-val" id="kpi-renewed">--</div>
+          <div className="kpi-sub">Cases requiring permit renewal</div>
         </div>
       </div>
 
